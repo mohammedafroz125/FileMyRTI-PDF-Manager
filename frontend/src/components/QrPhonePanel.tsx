@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import { QrCode, Copy, Check, AlertCircle, RefreshCw } from "lucide-react";
-import { createMobileToken, getOrCreateActiveMobileToken, type MobileToken } from "@/lib/rti-storage";
+import {
+  createMobileToken,
+  getOrCreateActiveMobileToken,
+  type MobileToken,
+} from "@/lib/rti-storage";
+import { getBackendUrl } from "@/lib/pdf-optimizer-client";
 
 type Props = { docId: string; sessionId?: string };
 
@@ -13,8 +18,10 @@ export function QrPhonePanel({ docId, sessionId }: Props) {
   const [busy, setBusy] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
 
+  const [customOrigin, setCustomOrigin] = useState<string | null>(null);
+
   const url = token
-    ? `${typeof window !== "undefined" ? window.location.origin : ""}/m/upload/${token.token}`
+    ? `${customOrigin ?? (typeof window !== "undefined" ? window.location.origin : "")}/m/upload/${token.token}`
     : "";
 
   const generate = async (forceRefresh = false) => {
@@ -25,7 +32,30 @@ export function QrPhonePanel({ docId, sessionId }: Props) {
         ? await createMobileToken(effectiveId, 120)
         : await getOrCreateActiveMobileToken(effectiveId, 120);
       setToken(t);
-      const u = `${window.location.origin}/m/upload/${t.token}`;
+
+      let effectiveOrigin = window.location.origin;
+      if (
+        window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1"
+      ) {
+        try {
+          const backendUrl = getBackendUrl();
+          if (backendUrl) {
+            const res = await fetch(`${backendUrl}/api/health`);
+            if (res.ok) {
+              const data = await res.json();
+              if (data?.lanIp) {
+                effectiveOrigin = `${window.location.protocol}//${data.lanIp}:${window.location.port || "8080"}`;
+              }
+            }
+          }
+        } catch {
+          /* fallback to window.location.origin */
+        }
+      }
+      setCustomOrigin(effectiveOrigin);
+
+      const u = `${effectiveOrigin}/m/upload/${t.token}`;
       const png = await QRCode.toDataURL(u, { margin: 1, width: 140 });
       setDataUrl(png);
     } catch (err) {
@@ -79,9 +109,15 @@ export function QrPhonePanel({ docId, sessionId }: Props) {
           >
             {dataUrl ? (
               <>
-                <img src={dataUrl} alt="Phone Upload QR" className="h-full w-full object-contain" />
+                <img
+                  src={dataUrl}
+                  alt="Phone Upload QR"
+                  className="h-full w-full object-contain"
+                />
                 <div className="absolute inset-0 bg-slate-900/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-lg">
-                  <span className="bg-slate-900/90 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow">Enlarge</span>
+                  <span className="bg-slate-900/90 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow">
+                    Enlarge
+                  </span>
                 </div>
               </>
             ) : genError ? (
@@ -100,30 +136,42 @@ export function QrPhonePanel({ docId, sessionId }: Props) {
           <div className="min-w-0 flex-1 space-y-1.5">
             <div className="flex items-center justify-between">
               <h3 className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
-                <QrCode className="h-3.5 w-3.5 text-blue-600" /> Phone Upload / Scanner
+                <QrCode className="h-3.5 w-3.5 text-blue-600" /> Phone Upload /
+                Scanner
               </h3>
               {token && (
                 <span className="text-[10px] font-medium text-slate-400">
-                  Expires at {new Date(token.expires_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  Expires at{" "}
+                  {new Date(token.expires_at).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
                 </span>
               )}
             </div>
 
             <p className="text-[11px] text-slate-500 leading-tight">
-              Scan with your phone to upload ACK, envelope, court fee, or images straight into this project.
+              Scan with your phone to upload ACK, envelope, court fee, or images
+              straight into this project.
             </p>
 
             {token && (
               <div className="pt-1 flex items-center gap-2">
                 <div className="min-w-0 flex-1 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 flex items-center justify-between">
-                  <span className="truncate font-mono text-[10px] text-slate-600">{url}</span>
+                  <span className="truncate font-mono text-[10px] text-slate-600">
+                    {url}
+                  </span>
                   <button
                     type="button"
                     onClick={copy}
                     className="ml-2 inline-flex items-center gap-1 text-[10px] font-semibold text-blue-600 hover:text-blue-700 shrink-0"
                     title="Copy upload link"
                   >
-                    {copied ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}
+                    {copied ? (
+                      <Check className="h-3 w-3 text-green-600" />
+                    ) : (
+                      <Copy className="h-3 w-3" />
+                    )}
                     {copied ? "Copied!" : "Copy"}
                   </button>
                 </div>
@@ -151,7 +199,11 @@ export function QrPhonePanel({ docId, sessionId }: Props) {
             </p>
 
             <div className="p-3 bg-white border border-slate-200 rounded-xl shadow-inner mb-4">
-              <img src={dataUrl} alt="Enlarged QR Code" className="h-64 w-64 object-contain" />
+              <img
+                src={dataUrl}
+                alt="Enlarged QR Code"
+                className="h-64 w-64 object-contain"
+              />
             </div>
 
             <p className="text-[11px] text-slate-400 font-mono break-all mb-4 bg-slate-50 p-2 rounded border border-slate-200 w-full">

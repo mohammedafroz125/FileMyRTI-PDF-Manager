@@ -1,8 +1,22 @@
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { Plus, FileText, RefreshCw, Trash2, Pencil, FileEdit, ChevronDown, ChevronRight, Search } from "lucide-react";
+import {
+  Plus,
+  FileText,
+  RefreshCw,
+  Trash2,
+  Pencil,
+  FileEdit,
+  ChevronDown,
+  ChevronRight,
+  Search,
+} from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { listDocuments, type RtiDocument, type RtiStatus } from "@/lib/rti-storage";
+import {
+  listDocuments,
+  type RtiDocument,
+  type RtiStatus,
+} from "@/lib/rti-storage";
 import type { DraftSummary } from "@/lib/manual-drafts";
 
 type Props = {
@@ -64,11 +78,11 @@ export function RtiSidebar({
   }, []);
 
   const filteredDocs = docs.filter((d) =>
-    d.customer_name.toLowerCase().includes(searchQuery.toLowerCase())
+    d.customer_name.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
   const filteredDrafts = drafts.filter((d) =>
-    d.name.toLowerCase().includes(searchQuery.toLowerCase())
+    d.name.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
   return (
@@ -77,8 +91,12 @@ export function RtiSidebar({
       <div className="bg-white border-b border-border px-4 py-3 shrink-0">
         <div className="flex items-center justify-between mb-2">
           <div>
-            <h1 className="text-sm font-bold text-slate-800 tracking-tight">FileMyRTI PDF Manager</h1>
-            <p className="text-[11px] text-muted-foreground">Queue &amp; Drafts</p>
+            <h1 className="text-sm font-bold text-slate-800 tracking-tight">
+              FileMyRTI PDF Manager
+            </h1>
+            <p className="text-[11px] text-muted-foreground">
+              Queue &amp; Drafts
+            </p>
           </div>
           <button
             type="button"
@@ -134,7 +152,9 @@ export function RtiSidebar({
 
           {filteredDocs.length === 0 ? (
             <p className="px-3 py-4 text-center text-xs text-muted-foreground italic bg-white rounded-lg border border-dashed border-slate-200">
-              {searchQuery ? "No matching projects found." : "No projects in queue."}
+              {searchQuery
+                ? "No matching projects found."
+                : "No projects in queue."}
             </p>
           ) : (
             <ul className="flex flex-col gap-1.5">
@@ -156,45 +176,62 @@ export function RtiSidebar({
                         className="min-w-0 flex-1 text-left"
                       >
                         <div className="flex items-start gap-2.5">
-                          <div className={`p-1.5 rounded-lg ${active ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-500"}`}>
+                          <div
+                            className={`p-1.5 rounded-lg ${active ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-500"}`}
+                          >
                             <FileText className="h-4 w-4 shrink-0" />
                           </div>
-                            <div className="min-w-0 flex-1">
-                              <p className={`truncate text-xs font-bold ${active ? "text-blue-950" : "text-slate-900"}`}>
-                                {d.customer_name}
-                              </p>
-                              <p className="truncate text-[10px] font-medium text-slate-500 mt-0.5">
-                                {d.rti_type_selected ?? "RTI Application"}
-                              </p>
-                              <div className="mt-1 flex items-center justify-between gap-1">
+                          <div className="min-w-0 flex-1">
+                            <p
+                              className={`truncate text-xs font-bold ${active ? "text-blue-950" : "text-slate-900"}`}
+                            >
+                              {d.customer_name}
+                            </p>
+                            <p className="truncate text-[10px] font-medium text-slate-500 mt-0.5">
+                              {d.rti_type_selected ?? "RTI Application"}
+                            </p>
+                            <div className="mt-1 flex items-center justify-between gap-1">
+                              <span
+                                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold border ${
+                                  isCompleted
+                                    ? "bg-emerald-50 text-emerald-700 border-emerald-200/60"
+                                    : "bg-amber-50 text-amber-700 border-amber-200/60"
+                                }`}
+                              >
                                 <span
-                                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold border ${
-                                    isCompleted
-                                      ? "bg-emerald-50 text-emerald-700 border-emerald-200/60"
-                                      : "bg-amber-50 text-amber-700 border-amber-200/60"
-                                  }`}
-                                >
-                                  <span className={`h-1 w-1 rounded-full ${isCompleted ? "bg-emerald-500" : "bg-amber-500"}`} />
-                                  {isCompleted ? "Completed" : "Pending"}
-                                </span>
-                                <span className="text-[9px] text-slate-400 font-medium truncate">
-                                  {(() => {
-                                    const dObj = new Date(d.created_at);
-                                    if (isNaN(dObj.getTime())) return "";
-                                    const isToday = dObj.toDateString() === new Date().toDateString();
-                                    const time = dObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                                    return isToday ? `Today ${time}` : `${dObj.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${time}`;
-                                  })()}
-                                </span>
-                              </div>
+                                  className={`h-1 w-1 rounded-full ${isCompleted ? "bg-emerald-500" : "bg-amber-500"}`}
+                                />
+                                {isCompleted ? "Completed" : "Pending"}
+                              </span>
+                              <span className="text-[9px] text-slate-400 font-medium truncate">
+                                {(() => {
+                                  const dObj = new Date(d.created_at);
+                                  if (isNaN(dObj.getTime())) return "";
+                                  const isToday =
+                                    dObj.toDateString() ===
+                                    new Date().toDateString();
+                                  const time = dObj.toLocaleTimeString([], {
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  });
+                                  return isToday
+                                    ? `Today ${time}`
+                                    : `${dObj.toLocaleDateString([], { month: "short", day: "numeric" })} ${time}`;
+                                })()}
+                              </span>
                             </div>
                           </div>
-                        </button>
+                        </div>
+                      </button>
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (!confirm(`Delete project "${d.customer_name}"? This cannot be undone.`)) {
+                          if (
+                            !confirm(
+                              `Delete project "${d.customer_name}"? This cannot be undone.`,
+                            )
+                          ) {
                             return;
                           }
                           setDocs((prev) => prev.filter((x) => x.id !== d.id));
@@ -247,7 +284,9 @@ export function RtiSidebar({
             <>
               {filteredDrafts.length === 0 ? (
                 <p className="px-3 py-4 text-center text-xs text-muted-foreground italic bg-white rounded-lg border border-dashed border-slate-200">
-                  {searchQuery ? "No matching drafts found." : "No manual drafts."}
+                  {searchQuery
+                    ? "No matching drafts found."
+                    : "No manual drafts."}
                 </p>
               ) : (
                 <ul className="flex flex-col gap-1.5">
@@ -268,17 +307,22 @@ export function RtiSidebar({
                             onClick={() => onSelectDraft?.(d.id)}
                             onDoubleClick={() => {
                               const name = prompt("Rename draft", d.name);
-                              if (name && name.trim()) onRenameDraft?.(d.id, name.trim());
+                              if (name && name.trim())
+                                onRenameDraft?.(d.id, name.trim());
                             }}
                             className="min-w-0 flex-1 text-left"
                             title="Click to open · double-click to rename"
                           >
                             <div className="flex items-start gap-2.5">
-                              <div className={`p-1.5 rounded-lg ${active ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-500"}`}>
+                              <div
+                                className={`p-1.5 rounded-lg ${active ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-500"}`}
+                              >
                                 <FileEdit className="h-4 w-4 shrink-0" />
                               </div>
                               <div className="min-w-0 flex-1">
-                                <p className={`truncate text-xs font-bold ${active ? "text-blue-950" : "text-slate-900"}`}>
+                                <p
+                                  className={`truncate text-xs font-bold ${active ? "text-blue-950" : "text-slate-900"}`}
+                                >
                                   {d.name}
                                 </p>
                                 <p className="truncate text-[10px] font-medium text-slate-500 mt-0.5">
@@ -292,16 +336,25 @@ export function RtiSidebar({
                                         : "bg-amber-50 text-amber-700 border-amber-200/60"
                                     }`}
                                   >
-                                    <span className={`h-1 w-1 rounded-full ${isCompleted ? "bg-emerald-500" : "bg-amber-500"}`} />
+                                    <span
+                                      className={`h-1 w-1 rounded-full ${isCompleted ? "bg-emerald-500" : "bg-amber-500"}`}
+                                    />
                                     {isCompleted ? "Completed" : "Pending"}
                                   </span>
                                   <span className="text-[9px] text-slate-400 font-medium truncate">
                                     {(() => {
                                       const dObj = new Date(d.updatedAt);
                                       if (isNaN(dObj.getTime())) return "";
-                                      const isToday = dObj.toDateString() === new Date().toDateString();
-                                      const time = dObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                                      return isToday ? `Today ${time}` : `${dObj.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${time}`;
+                                      const isToday =
+                                        dObj.toDateString() ===
+                                        new Date().toDateString();
+                                      const time = dObj.toLocaleTimeString([], {
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                      });
+                                      return isToday
+                                        ? `Today ${time}`
+                                        : `${dObj.toLocaleDateString([], { month: "short", day: "numeric" })} ${time}`;
                                     })()}
                                   </span>
                                 </div>

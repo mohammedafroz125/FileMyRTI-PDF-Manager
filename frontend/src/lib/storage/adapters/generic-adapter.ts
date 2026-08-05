@@ -19,7 +19,10 @@ export class GenericDbStorageAdapter implements IStorageProvider {
   name: "generic" = "generic";
   private fallback: IndexedDbStorageAdapter;
 
-  constructor(private baseUrl?: string, private apiKey?: string) {
+  constructor(
+    private baseUrl?: string,
+    private apiKey?: string,
+  ) {
     this.fallback = new IndexedDbStorageAdapter();
   }
 
@@ -33,9 +36,15 @@ export class GenericDbStorageAdapter implements IStorageProvider {
     throw new Error("Generic API endpoint getDocument not configured.");
   }
 
-  async createProjectWithOriginals(customerName: string, files: File[]): Promise<RtiDocument> {
-    if (!this.baseUrl) return this.fallback.createProjectWithOriginals(customerName, files);
-    throw new Error("Generic API endpoint createProjectWithOriginals not configured.");
+  async createProjectWithOriginals(
+    customerName: string,
+    files: File[],
+  ): Promise<RtiDocument> {
+    if (!this.baseUrl)
+      return this.fallback.createProjectWithOriginals(customerName, files);
+    throw new Error(
+      "Generic API endpoint createProjectWithOriginals not configured.",
+    );
   }
 
   async updateDocument(
@@ -47,7 +56,7 @@ export class GenericDbStorageAdapter implements IStorageProvider {
       plan_json: SavedPlan;
       rti_type_selected: RtiTypeSelected;
       deletion_scheduled_at: string | null;
-    }>
+    }>,
   ): Promise<RtiDocument> {
     if (!this.baseUrl) return this.fallback.updateDocument(id, patch);
     throw new Error("Generic API endpoint updateDocument not configured.");
@@ -68,18 +77,32 @@ export class GenericDbStorageAdapter implements IStorageProvider {
     throw new Error("Generic API endpoint uploadOriginalFile not configured.");
   }
 
-  async uploadItemFile(docId: string, file: File, kind: "pdf" | "image"): Promise<string> {
+  async uploadItemFile(
+    docId: string,
+    file: File,
+    kind: "pdf" | "image",
+  ): Promise<string> {
     if (!this.baseUrl) return this.fallback.uploadItemFile(docId, file, kind);
     throw new Error("Generic API endpoint uploadItemFile not configured.");
   }
 
-  async uploadEdited(docId: string, blob: Blob, finalName: string): Promise<string> {
-    if (!this.baseUrl) return this.fallback.uploadEdited(docId, blob, finalName);
+  async uploadEdited(
+    docId: string,
+    blob: Blob,
+    finalName: string,
+  ): Promise<string> {
+    if (!this.baseUrl)
+      return this.fallback.uploadEdited(docId, blob, finalName);
     throw new Error("Generic API endpoint uploadEdited not configured.");
   }
 
-  async downloadFromPath(path: string, filename: string, mime: string): Promise<File> {
-    if (!this.baseUrl) return this.fallback.downloadFromPath(path, filename, mime);
+  async downloadFromPath(
+    path: string,
+    filename: string,
+    mime: string,
+  ): Promise<File> {
+    if (!this.baseUrl)
+      return this.fallback.downloadFromPath(path, filename, mime);
     throw new Error("Generic API endpoint downloadFromPath not configured.");
   }
 
@@ -103,14 +126,24 @@ export class GenericDbStorageAdapter implements IStorageProvider {
     return this.fallback.deleteDraft(id);
   }
 
-  async createMobileToken(docId: string, ttlMinutes = 120): Promise<MobileToken> {
-    if (!this.baseUrl) return this.fallback.createMobileToken(docId, ttlMinutes);
+  async createMobileToken(
+    docId: string,
+    ttlMinutes = 120,
+  ): Promise<MobileToken> {
+    if (!this.baseUrl)
+      return this.fallback.createMobileToken(docId, ttlMinutes);
     throw new Error("Generic API endpoint createMobileToken not configured.");
   }
 
-  async getOrCreateActiveMobileToken(docId: string, ttlMinutes = 120): Promise<MobileToken> {
-    if (!this.baseUrl) return this.fallback.getOrCreateActiveMobileToken(docId, ttlMinutes);
-    throw new Error("Generic API endpoint getOrCreateActiveMobileToken not configured.");
+  async getOrCreateActiveMobileToken(
+    docId: string,
+    ttlMinutes = 120,
+  ): Promise<MobileToken> {
+    if (!this.baseUrl)
+      return this.fallback.getOrCreateActiveMobileToken(docId, ttlMinutes);
+    throw new Error(
+      "Generic API endpoint getOrCreateActiveMobileToken not configured.",
+    );
   }
 
   async getTokenInfo(token: string): Promise<MobileToken | null> {
@@ -118,12 +151,19 @@ export class GenericDbStorageAdapter implements IStorageProvider {
     throw new Error("Generic API endpoint getTokenInfo not configured.");
   }
 
-  async uploadMobileFile(docId: string, token: string, file: File): Promise<string> {
-    if (!this.baseUrl) return this.fallback.uploadMobileFile(docId, token, file);
+  async uploadMobileFile(
+    docId: string,
+    token: string,
+    file: File,
+  ): Promise<string> {
+    if (!this.baseUrl)
+      return this.fallback.uploadMobileFile(docId, token, file);
     throw new Error("Generic API endpoint uploadMobileFile not configured.");
   }
 
-  async listMobileUploads(docId: string): Promise<{ name: string; path: string }[]> {
+  async listMobileUploads(
+    docId: string,
+  ): Promise<{ name: string; path: string }[]> {
     if (!this.baseUrl) return this.fallback.listMobileUploads(docId);
     throw new Error("Generic API endpoint listMobileUploads not configured.");
   }

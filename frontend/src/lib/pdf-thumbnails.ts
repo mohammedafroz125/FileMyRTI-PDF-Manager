@@ -49,7 +49,10 @@ function schedule<T>(job: () => Promise<T>): Promise<T> {
   });
 }
 
-export async function openPdfDoc(key: string, file: File): Promise<PdfDocProxy> {
+export async function openPdfDoc(
+  key: string,
+  file: File,
+): Promise<PdfDocProxy> {
   let p = docCache.get(key);
   if (!p) {
     p = (async () => {
@@ -68,7 +71,10 @@ export async function openPdfDoc(key: string, file: File): Promise<PdfDocProxy> 
   return p;
 }
 
-export async function getPdfPageCount(key: string, file: File): Promise<number> {
+export async function getPdfPageCount(
+  key: string,
+  file: File,
+): Promise<number> {
   const doc = await openPdfDoc(key, file);
   return doc.numPages;
 }

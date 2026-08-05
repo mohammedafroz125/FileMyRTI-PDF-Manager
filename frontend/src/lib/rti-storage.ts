@@ -1,7 +1,14 @@
 import { storageService } from "./storage/storage-service";
 
 export type RtiStatus = "pending" | "waiting_ack" | "completed";
-export type RtiTypeSelected = "RTI Application" | "First Appeal" | "Second Appeal" | "Complaint";
+export type RtiTypeSelected =
+  "RTI Application" | "First Appeal" | "Second Appeal";
+
+export const ALL_RTI_TYPES: RtiTypeSelected[] = [
+  "RTI Application",
+  "First Appeal",
+  "Second Appeal",
+];
 
 export type RtiDocument = {
   id: string;
@@ -35,9 +42,25 @@ export type SavedPlanItem = {
   path: string;
 };
 
+import type { PageSticker } from "./stickers";
+
 export type SavedTimelineEntry =
-  | { id: string; type: "original-page"; originalId: string; pageIndex: number; rotation?: number }
-  | { id: string; type: "item"; itemId: string; pageIndex?: number; rotation?: number };
+  | {
+      id: string;
+      type: "original-page";
+      originalId: string;
+      pageIndex: number;
+      rotation?: number;
+      stickers?: PageSticker[];
+    }
+  | {
+      id: string;
+      type: "item";
+      itemId: string;
+      pageIndex?: number;
+      rotation?: number;
+      stickers?: PageSticker[];
+    };
 
 export type SavedPlan = {
   items: SavedPlanItem[];
@@ -53,7 +76,10 @@ export type MobileToken = {
 };
 
 // Facade delegating to Storage Service Repository
-export async function uploadOriginalFile(docId: string, file: File): Promise<string> {
+export async function uploadOriginalFile(
+  docId: string,
+  file: File,
+): Promise<string> {
   return storageService.uploadOriginalFile(docId, file);
 }
 
@@ -76,7 +102,11 @@ export async function getDocument(id: string): Promise<RtiDocument> {
   return storageService.getDocument(id);
 }
 
-export async function downloadFromPath(path: string, filename: string, mime: string): Promise<File> {
+export async function downloadFromPath(
+  path: string,
+  filename: string,
+  mime: string,
+): Promise<File> {
   return storageService.downloadFromPath(path, filename, mime);
 }
 
@@ -88,7 +118,11 @@ export async function uploadItemFile(
   return storageService.uploadItemFile(docId, file, kind);
 }
 
-export async function uploadEdited(docId: string, blob: Blob, finalName: string): Promise<string> {
+export async function uploadEdited(
+  docId: string,
+  blob: Blob,
+  finalName: string,
+): Promise<string> {
   return storageService.uploadEdited(docId, blob, finalName);
 }
 
@@ -111,15 +145,26 @@ export async function deleteDocumentData(id: string): Promise<void> {
 }
 
 export async function loadItemFile(item: SavedPlanItem): Promise<File> {
-  const mime = item.kind === "pdf" ? "application/pdf" : item.name.toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
+  const mime =
+    item.kind === "pdf"
+      ? "application/pdf"
+      : item.name.toLowerCase().endsWith(".png")
+        ? "image/png"
+        : "image/jpeg";
   return storageService.downloadFromPath(item.path, item.name, mime);
 }
 
-export async function createMobileToken(docId: string, ttlMinutes = 120): Promise<MobileToken> {
+export async function createMobileToken(
+  docId: string,
+  ttlMinutes = 120,
+): Promise<MobileToken> {
   return storageService.createMobileToken(docId, ttlMinutes);
 }
 
-export async function getOrCreateActiveMobileToken(docId: string, ttlMinutes = 120): Promise<MobileToken> {
+export async function getOrCreateActiveMobileToken(
+  docId: string,
+  ttlMinutes = 120,
+): Promise<MobileToken> {
   return storageService.getOrCreateActiveMobileToken(docId, ttlMinutes);
 }
 
@@ -135,6 +180,8 @@ export async function uploadMobileFile(
   return storageService.uploadMobileFile(docId, token, file);
 }
 
-export async function listMobileUploads(docId: string): Promise<{ name: string; path: string }[]> {
+export async function listMobileUploads(
+  docId: string,
+): Promise<{ name: string; path: string }[]> {
   return storageService.listMobileUploads(docId);
 }

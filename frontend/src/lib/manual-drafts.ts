@@ -15,8 +15,20 @@ export type DraftItem = {
   file: DraftFileBlob;
 };
 export type DraftTimelineEntry =
-  | { id: string; type: "original-page"; originalId: string; pageIndex: number; rotation?: number }
-  | { id: string; type: "item"; itemId: string; pageIndex?: number; rotation?: number };
+  | {
+      id: string;
+      type: "original-page";
+      originalId: string;
+      pageIndex: number;
+      rotation?: number;
+    }
+  | {
+      id: string;
+      type: "item";
+      itemId: string;
+      pageIndex?: number;
+      rotation?: number;
+    };
 
 export type ManualDraft = {
   id: string;
@@ -105,7 +117,9 @@ export async function deleteDraft(id: string): Promise<void> {
 }
 
 export function draftFileToFile(f: DraftFileBlob): File {
-  return new File([f.blob], f.name, { type: f.type || "application/octet-stream" });
+  return new File([f.blob], f.name, {
+    type: f.type || "application/octet-stream",
+  });
 }
 
 export async function fileToDraftBlob(file: File): Promise<DraftFileBlob> {

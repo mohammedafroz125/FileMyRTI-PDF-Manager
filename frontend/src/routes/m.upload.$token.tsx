@@ -1,11 +1,24 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { ScanLine, Image as ImageIcon, CheckCircle2, AlertCircle, Upload, FolderOpen } from "lucide-react";
-import { getTokenInfo, uploadMobileFile, type MobileToken } from "@/lib/rti-storage";
+import {
+  ScanLine,
+  Image as ImageIcon,
+  CheckCircle2,
+  AlertCircle,
+  Upload,
+  FolderOpen,
+} from "lucide-react";
+import {
+  getTokenInfo,
+  uploadMobileFile,
+  type MobileToken,
+} from "@/lib/rti-storage";
+import { convertWordToPdfOnServer } from "@/lib/pdf-optimizer-client";
 
 async function optimizeImage(file: File): Promise<File> {
   const lower = file.name.toLowerCase();
-  if (!/\.(jpe?g|png|webp)$/.test(lower) && !file.type.startsWith("image/")) return file;
+  if (!/\.(jpe?g|png|webp)$/.test(lower) && !file.type.startsWith("image/"))
+    return file;
 
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -43,7 +56,7 @@ async function optimizeImage(file: File): Promise<File> {
             }
           },
           "image/jpeg",
-          0.82
+          0.82,
         );
       };
       img.onerror = () => resolve(file);
@@ -54,14 +67,16 @@ async function optimizeImage(file: File): Promise<File> {
   });
 }
 
-
 export const Route = createFileRoute("/m/upload/$token")({
   ssr: false,
   head: () => ({
     meta: [
       { title: "Mobile Upload — RTI PDF Manager" },
       { name: "robots", content: "noindex" },
-      { name: "viewport", content: "width=device-width, initial-scale=1, maximum-scale=1" },
+      {
+        name: "viewport",
+        content: "width=device-width, initial-scale=1, maximum-scale=1",
+      },
     ],
   }),
   component: MobileUploadPage,
@@ -70,7 +85,9 @@ export const Route = createFileRoute("/m/upload/$token")({
 function MobileUploadPage() {
   const { token } = Route.useParams();
   const [info, setInfo] = useState<MobileToken | null>(null);
-  const [state, setState] = useState<"loading" | "ready" | "invalid" | "expired">("loading");
+  const [state, setState] = useState<
+    "loading" | "ready" | "invalid" | "expired"
+  >("loading");
   const [uploading, setUploading] = useState(false);
   const [selectedCount, setSelectedCount] = useState<number | null>(null);
   const [uploaded, setUploaded] = useState<string[]>([]);
@@ -82,7 +99,8 @@ function MobileUploadPage() {
     getTokenInfo(token)
       .then((t) => {
         if (!t) return setState("invalid");
-        if (new Date(t.expires_at).getTime() < Date.now()) return setState("expired");
+        if (new Date(t.expires_at).getTime() < Date.now())
+          return setState("expired");
         setInfo(t);
         setState("ready");
       })
@@ -96,9 +114,27 @@ function MobileUploadPage() {
     setUploading(true);
     try {
       for (const f of files) {
-        const optimized = await optimizeImage(f);
-        await uploadMobileFile(info.document_id, token, optimized);
-        setUploaded((prev) => [optimized.name, ...prev]);
+        let fileToUpload = f;
+        const lower = f.name.toLowerCase();
+        const isWord =
+          lower.endsWith(".doc") ||
+          lower.endsWith(".docx") ||
+          f.type.includes("word");
+        const isImage =
+          /\.(jpe?g|png|webp)$/.test(lower) || f.type.startsWith("image/");
+
+        if (isWord) {
+          try {
+            fileToUpload = await convertWordToPdfOnServer(f);
+          } catch (convErr) {
+            console.warn("Word document fallback on mobile upload:", convErr);
+          }
+        } else if (isImage) {
+          fileToUpload = await optimizeImage(f);
+        }
+
+        await uploadMobileFile(info.document_id, token, fileToUpload);
+        setUploaded((prev) => [fileToUpload.name, ...prev]);
       }
     } catch (err) {
       setError((err as Error).message);
@@ -108,13 +144,25 @@ function MobileUploadPage() {
   };
 
   if (state === "loading") {
-    return <Centered><p className="text-sm text-muted-foreground">Loading…</p></Centered>;
+    return (
+      <Centered>
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      </Centered>
+    );
   }
   if (state === "invalid") {
-    return <Centered><p className="text-sm text-red-700">This upload link is invalid.</p></Centered>;
+    return (
+      <Centered>
+        <p className="text-sm text-red-700">This upload link is invalid.</p>
+      </Centered>
+    );
   }
   if (state === "expired") {
-    return <Centered><p className="text-sm text-red-700">This upload link has expired.</p></Centered>;
+    return (
+      <Centered>
+        <p className="text-sm text-red-700">This upload link has expired.</p>
+      </Centered>
+    );
   }
 
   return (
@@ -123,7 +171,10 @@ function MobileUploadPage() {
         {/* Header */}
         <div className="mb-4 rounded-xl bg-blue-600 px-4 py-4 text-white shadow-sm">
           <h1 className="text-lg font-bold">Upload Files</h1>
-          <p className="text-xs opacity-90 mt-0.5">Select images or PDFs to add directly to this project.</p>
+          <p className="text-xs opacity-90 mt-0.5">
+            Select PDFs, Word documents (.doc/.docx), or images to add directly
+            to this project.
+          </p>
         </div>
 
         <div className="space-y-3.5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -142,7 +193,7 @@ function MobileUploadPage() {
           <input
             ref={filesRef}
             type="file"
-            accept="application/pdf,.pdf,.jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+            accept="application/pdf,.pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
             multiple
             className="hidden"
             onChange={(e) => {
@@ -173,19 +224,23 @@ function MobileUploadPage() {
           </div>
 
           <p className="text-center text-xs font-semibold text-slate-500 tracking-wide pt-1">
-            Supports: PDF, JPG, PNG, WEBP
+            PDF, Word (.doc/.docx), Image
           </p>
 
           {/* Selection Confirmation */}
           {selectedCount !== null && (
             <div className="flex items-center justify-center gap-1.5 rounded-lg bg-blue-50/80 border border-blue-200 px-3 py-2 text-xs font-bold text-blue-700">
-              <span>✓ {selectedCount} {selectedCount === 1 ? "file" : "files"} selected</span>
+              <span>
+                ✓ {selectedCount} {selectedCount === 1 ? "file" : "files"}{" "}
+                selected
+              </span>
             </div>
           )}
 
           {uploading && (
             <div className="flex items-center justify-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold text-blue-800">
-              <Upload className="h-4 w-4 animate-pulse text-blue-600" /> Uploading to project…
+              <Upload className="h-4 w-4 animate-pulse text-blue-600" />{" "}
+              Uploading to project…
             </div>
           )}
           {error && (
@@ -197,11 +252,14 @@ function MobileUploadPage() {
           {uploaded.length > 0 && (
             <div className="rounded-lg bg-emerald-50 border border-emerald-200/60 p-3 space-y-1">
               <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-800">
-                <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" /> Uploaded ({uploaded.length})
+                <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />{" "}
+                Uploaded ({uploaded.length})
               </div>
               <ul className="space-y-0.5 text-xs text-emerald-900/90 pl-1">
                 {uploaded.map((n, i) => (
-                  <li key={i} className="truncate">• {n}</li>
+                  <li key={i} className="truncate">
+                    • {n}
+                  </li>
                 ))}
               </ul>
             </div>
@@ -215,7 +273,9 @@ function MobileUploadPage() {
 function Centered({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-      <div className="rounded-xl border border-border bg-white p-6 shadow-sm">{children}</div>
+      <div className="rounded-xl border border-border bg-white p-6 shadow-sm">
+        {children}
+      </div>
     </div>
   );
 }

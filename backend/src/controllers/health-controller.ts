@@ -2,6 +2,20 @@ import { Request, Response } from "express";
 import { getGhostscriptExecutable, getLibreOfficeExecutable, isLibreOfficeAvailable } from "../config";
 import { OptimizerManager } from "../services/optimizer-manager";
 
+import os from "os";
+
+function getLanIp(): string | null {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const net of interfaces[name] || []) {
+      if (net.family === "IPv4" && !net.internal) {
+        return net.address;
+      }
+    }
+  }
+  return null;
+}
+
 const optimizerManager = new OptimizerManager();
 
 export async function getHealthStatus(_req: Request, res: Response): Promise<void> {
@@ -19,6 +33,7 @@ export async function getHealthStatus(_req: Request, res: Response): Promise<voi
       defaultTargetSizeMB: 2,
       libreoffice: loAvailable,
       ghostscript: gsAvailable,
+      lanIp: getLanIp(),
       supportedInputFormats: [".pdf", ".doc", ".docx", ".png", ".jpg", ".webp"],
       optimizer: gsAvailable ? "Ghostscript + QPDF Adaptive Engine" : "Native JS Stream Optimizer",
       availableOptimizers,

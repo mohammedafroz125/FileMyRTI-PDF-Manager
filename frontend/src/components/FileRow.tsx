@@ -1,6 +1,13 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, ArrowUp, ArrowDown, Trash2, FileText, Image as ImageIcon } from "lucide-react";
+import {
+  GripVertical,
+  ArrowUp,
+  ArrowDown,
+  Trash2,
+  FileText,
+  Image as ImageIcon,
+} from "lucide-react";
 import type { MergeItem } from "@/lib/pdf-merge";
 
 type Props = {
@@ -14,8 +21,22 @@ type Props = {
 
 import React from "react";
 
-export const FileRow = React.memo(function FileRow({ item, index, total, onUp, onDown, onDelete }: Props) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+export const FileRow = React.memo(function FileRow({
+  item,
+  index,
+  total,
+  onUp,
+  onDown,
+  onDelete,
+}: Props) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
     id: item.id,
   });
 
@@ -46,7 +67,9 @@ export const FileRow = React.memo(function FileRow({ item, index, total, onUp, o
         <Icon className="h-5 w-5" />
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-foreground">{item.name}</p>
+        <p className="truncate text-sm font-medium text-foreground">
+          {item.name}
+        </p>
         <p className="text-xs text-muted-foreground uppercase">{item.kind}</p>
       </div>
       <div className="flex items-center gap-1">

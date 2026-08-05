@@ -1,4 +1,10 @@
-import { PDFDocument, PDFName, degrees, type PDFImage, type PDFPage } from "pdf-lib";
+import {
+  PDFDocument,
+  PDFName,
+  degrees,
+  type PDFImage,
+  type PDFPage,
+} from "pdf-lib";
 
 export type MergeItem = {
   id: string;
@@ -7,9 +13,25 @@ export type MergeItem = {
   file: File;
 };
 
+import type { PageSticker } from "./stickers";
+
 export type PlanEntry =
-  | { entryId: string; kind: "original-page"; originalId: string; pageIndex: number; rotation?: number }
-  | { entryId: string; kind: "item"; item: MergeItem; pageIndex?: number; rotation?: number };
+  | {
+      entryId: string;
+      kind: "original-page";
+      originalId: string;
+      pageIndex: number;
+      rotation?: number;
+      stickers?: PageSticker[];
+    }
+  | {
+      entryId: string;
+      kind: "item";
+      item: MergeItem;
+      pageIndex?: number;
+      rotation?: number;
+      stickers?: PageSticker[];
+    };
 
 /**
  * Strips global document catalog pointers (StructTreeRoot, Metadata, Names, Dests, Outlines)
@@ -38,9 +60,15 @@ function stripGlobalCatalogPointers(doc: PDFDocument): void {
  * - Keeps original JPEG binary streams intact to prevent re-encoding loss.
  * - Converts non-JPEG images (PNG, WebP) to optimized JPEGs (quality 0.82) when size reduction is achieved.
  */
-async function getOptimizedImageBytes(file: File, quality = 0.82): Promise<{ bytes: Uint8Array; isPng: boolean }> {
+async function getOptimizedImageBytes(
+  file: File,
+  quality = 0.82,
+): Promise<{ bytes: Uint8Array; isPng: boolean }> {
   const lower = file.name.toLowerCase();
-  const isJpg = lower.endsWith(".jpg") || lower.endsWith(".jpeg") || file.type === "image/jpeg";
+  const isJpg =
+    lower.endsWith(".jpg") ||
+    lower.endsWith(".jpeg") ||
+    file.type === "image/jpeg";
   const rawBytes = new Uint8Array(await file.arrayBuffer());
 
   if (isJpg) {
@@ -67,7 +95,7 @@ async function getOptimizedImageBytes(file: File, quality = 0.82): Promise<{ byt
         ctx.fillRect(0, 0, img.width, img.height);
         ctx.drawImage(img, 0, 0);
         const jpgBlob = await new Promise<Blob | null>((resolve) =>
-          canvas.toBlob((b) => resolve(b), "image/jpeg", quality)
+          canvas.toBlob((b) => resolve(b), "image/jpeg", quality),
         );
         URL.revokeObjectURL(url);
         if (jpgBlob && jpgBlob.size < rawBytes.byteLength) {
@@ -112,7 +140,8 @@ export async function mergeByPlan(
       const key = `orig-${entry.originalId}`;
       if (!sourceDocsMap.has(key)) {
         const file = originals[entry.originalId];
-        if (!file) throw new Error(`Original file missing for id ${entry.originalId}`);
+        if (!file)
+          throw new Error(`Original file missing for id ${entry.originalId}`);
         const bytes = await file.arrayBuffer();
         const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
         stripGlobalCatalogPointers(doc);
@@ -143,7 +172,9 @@ export async function mergeByPlan(
     const indicesSet = pageIndicesPerSource.get(key);
     if (!indicesSet || indicesSet.size === 0) continue;
 
-    const validIndices = Array.from(indicesSet).filter((idx) => idx < doc.getPageCount());
+    const validIndices = Array.from(indicesSet).filter(
+      (idx) => idx < doc.getPageCount(),
+    );
     if (validIndices.length === 0) continue;
 
     // Single-batch copy: copies ONLY objects referenced by validIndices
@@ -171,9 +202,54 @@ export async function mergeByPlan(
     return img;
   };
 
+  const stickerImageCache = new Map<string, PDFImage>();
+
+  const drawStickersOnPage = async (
+    page: PDFPage,
+    stickers?: PageSticker[],
+  ) => {
+    if (!stickers || stickers.length === 0) return;
+    const pWidth = page.getWidth();
+    const pHeight = page.getHeight();
+
+    for (const sticker of stickers) {
+      try {
+        let img = stickerImageCache.get(sticker.imageDataUrl);
+        if (!img) {
+          const parts = sticker.imageDataUrl.split(",");
+          const mimeStr = parts[0] ?? "";
+          const base64Data = parts[1] ?? "";
+          const binaryStr = atob(base64Data);
+          const bytes = new Uint8Array(binaryStr.length);
+          for (let i = 0; i < binaryStr.length; i++) {
+            bytes[i] = binaryStr.charCodeAt(i);
+          }
+          const isPng = mimeStr.includes("png");
+          img = isPng ? await out.embedPng(bytes) : await out.embedJpg(bytes);
+          stickerImageCache.set(sticker.imageDataUrl, img);
+        }
+
+        const drawW = (sticker.width / 100) * pWidth;
+        const drawH = (sticker.height / 100) * pHeight;
+        const drawX = (sticker.x / 100) * pWidth;
+        const drawY = pHeight - ((sticker.y / 100) * pHeight + drawH);
+
+        page.drawImage(img, {
+          x: drawX,
+          y: drawY,
+          width: drawW,
+          height: drawH,
+        });
+      } catch (err) {
+        console.warn("Failed to embed sticker onto page:", err);
+      }
+    }
+  };
+
   // 4. Assemble final PDF pages in target plan sequence
   let done = 0;
   for (const entry of plan) {
+    let addedPage: PDFPage | null = null;
     if (entry.kind === "original-page") {
       const key = `orig-${entry.originalId}`;
       const pageLookup = batchCopiedPagesMap.get(key);
@@ -181,9 +257,11 @@ export async function mergeByPlan(
       if (page) {
         if (entry.rotation) {
           const currentRotation = page.getRotation().angle;
-          page.setRotation(degrees(((currentRotation + entry.rotation) % 360 + 360) % 360));
+          page.setRotation(
+            degrees((((currentRotation + entry.rotation) % 360) + 360) % 360),
+          );
         }
-        out.addPage(page);
+        addedPage = out.addPage(page);
       }
     } else {
       const it = entry.item;
@@ -195,19 +273,32 @@ export async function mergeByPlan(
         if (page) {
           if (entry.rotation) {
             const currentRotation = page.getRotation().angle;
-            page.setRotation(degrees(((currentRotation + entry.rotation) % 360 + 360) % 360));
+            page.setRotation(
+              degrees((((currentRotation + entry.rotation) % 360) + 360) % 360),
+            );
           }
-          out.addPage(page);
+          addedPage = out.addPage(page);
         }
       } else {
         const img = await getOrEmbedImage(it);
         const page = out.addPage([img.width, img.height]);
-        page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
+        page.drawImage(img, {
+          x: 0,
+          y: 0,
+          width: img.width,
+          height: img.height,
+        });
         if (entry.rotation) {
           page.setRotation(degrees(((entry.rotation % 360) + 360) % 360));
         }
+        addedPage = page;
       }
     }
+
+    if (addedPage && entry.stickers && entry.stickers.length > 0) {
+      await drawStickersOnPage(addedPage, entry.stickers);
+    }
+
     done += 1;
     onProgress?.(65 + Math.round((done / plan.length) * 30));
   }

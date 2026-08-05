@@ -32,7 +32,10 @@ export function ImagePreviewModal({ src, alt, onClose }: Props) {
       role="dialog"
       aria-modal="true"
     >
-      <div className="flex items-center justify-between gap-2 border-b border-white/10 px-4 py-2 text-white" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="flex items-center justify-between gap-2 border-b border-white/10 px-4 py-2 text-white"
+        onClick={(e) => e.stopPropagation()}
+      >
         <p className="truncate text-sm font-medium">{alt ?? "Image preview"}</p>
         <div className="flex items-center gap-1">
           <button
@@ -43,7 +46,9 @@ export function ImagePreviewModal({ src, alt, onClose }: Props) {
           >
             <ZoomOut className="h-4 w-4" />
           </button>
-          <span className="w-14 text-center text-xs tabular-nums">{Math.round(zoom * 100)}%</span>
+          <span className="w-14 text-center text-xs tabular-nums">
+            {Math.round(zoom * 100)}%
+          </span>
           <button
             type="button"
             title="Zoom in"
@@ -70,7 +75,10 @@ export function ImagePreviewModal({ src, alt, onClose }: Props) {
           </button>
         </div>
       </div>
-      <div className="flex-1 overflow-auto p-4" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="flex-1 overflow-auto p-4"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex min-h-full items-center justify-center">
           <img
             src={src}

@@ -1,8 +1,26 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { Plus, UploadCloud, CheckCircle2, AlertCircle, Loader2, X, ArrowLeft, Layers, Sparkles, ChevronUp, ChevronDown, FileText, Image as ImageIcon } from "lucide-react";
+import {
+  Plus,
+  UploadCloud,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+  X,
+  ArrowLeft,
+  Layers,
+  Sparkles,
+  ChevronUp,
+  ChevronDown,
+  FileText,
+  Image as ImageIcon,
+} from "lucide-react";
 import { createProjectWithOriginals } from "@/lib/rti-storage";
-import { convertWordToPdfOnServer, optimizePdfBlobSilently } from "@/lib/pdf-optimizer-client";
+import {
+  convertWordToPdfOnServer,
+  optimizePdfBlobSilently,
+} from "@/lib/pdf-optimizer-client";
+import { safeRandomUUID } from "@/lib/utils";
 
 export const Route = createFileRoute("/admin")({
   component: AdminUpload,
@@ -16,11 +34,12 @@ type UploadSlot = {
   errorMsg?: string;
 };
 
-const ALLOWED_ACCEPT = "application/pdf,.pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg,image/jpg,image/webp,.jpg,.jpeg,.png,.webp";
+const ALLOWED_ACCEPT =
+  "application/pdf,.pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg,image/jpg,image/webp,.jpg,.jpeg,.png,.webp";
 
 function AdminUpload() {
   const [slots, setSlots] = useState<UploadSlot[]>([
-    { id: crypto.randomUUID(), files: [], customerName: "", status: "idle" },
+    { id: safeRandomUUID(), files: [], customerName: "", status: "idle" },
   ]);
   const [bulkUploadMode, setBulkUploadMode] = useState(false);
   const [isUploadingAll, setIsUploadingAll] = useState(false);
@@ -28,7 +47,7 @@ function AdminUpload() {
   const addSlot = () => {
     setSlots((prev) => [
       ...prev,
-      { id: crypto.randomUUID(), files: [], customerName: "", status: "idle" },
+      { id: safeRandomUUID(), files: [], customerName: "", status: "idle" },
     ]);
   };
 
@@ -43,8 +62,14 @@ function AdminUpload() {
   const handleFiles = (targetSlotId: string, files: File[]) => {
     if (!files.length) return;
 
-    const pdfs = files.filter((f) => f.name.toLowerCase().endsWith(".pdf") || f.type === "application/pdf");
-    const nonPdfs = files.filter((f) => !f.name.toLowerCase().endsWith(".pdf") && f.type !== "application/pdf");
+    const pdfs = files.filter(
+      (f) =>
+        f.name.toLowerCase().endsWith(".pdf") || f.type === "application/pdf",
+    );
+    const nonPdfs = files.filter(
+      (f) =>
+        !f.name.toLowerCase().endsWith(".pdf") && f.type !== "application/pdf",
+    );
 
     if (bulkUploadMode && pdfs.length > 1) {
       setSlots((prev) => {
@@ -58,7 +83,9 @@ function AdminUpload() {
         let pdfIndex = 0;
         if (isTargetEmpty) {
           const firstPdf = pdfs[0];
-          const extractedName = targetSlot.customerName.trim() || firstPdf.name.replace(/\.pdf$/i, "");
+          const extractedName =
+            targetSlot.customerName.trim() ||
+            firstPdf.name.replace(/\.pdf$/i, "");
           updated[targetIndex] = {
             ...targetSlot,
             files: [firstPdf, ...nonPdfs],
@@ -98,8 +125,14 @@ function AdminUpload() {
         if (!newCustomerName.trim() && newFiles.length > 0) {
           newCustomerName = newFiles[0].name.replace(/\.[^/.]+$/, "");
         }
-        return { ...s, files: newFiles, customerName: newCustomerName, errorMsg: "", status: "idle" };
-      })
+        return {
+          ...s,
+          files: newFiles,
+          customerName: newCustomerName,
+          errorMsg: "",
+          status: "idle",
+        };
+      }),
     );
   };
 
@@ -110,11 +143,15 @@ function AdminUpload() {
         const newFiles = [...s.files];
         newFiles.splice(index, 1);
         return { ...s, files: newFiles };
-      })
+      }),
     );
   };
 
-  const moveFile = (slotId: string, index: number, direction: "up" | "down") => {
+  const moveFile = (
+    slotId: string,
+    index: number,
+    direction: "up" | "down",
+  ) => {
     setSlots((prev) =>
       prev.map((s) => {
         if (s.id !== slotId) return s;
@@ -124,7 +161,7 @@ function AdminUpload() {
         const [moved] = newFiles.splice(index, 1);
         newFiles.splice(targetIndex, 0, moved);
         return { ...s, files: newFiles };
-      })
+      }),
     );
   };
 
@@ -136,7 +173,10 @@ function AdminUpload() {
       const processedFiles = await Promise.all(
         slot.files.map(async (f) => {
           const lower = f.name.toLowerCase();
-          const isWord = lower.endsWith(".doc") || lower.endsWith(".docx") || f.type.includes("word");
+          const isWord =
+            lower.endsWith(".doc") ||
+            lower.endsWith(".docx") ||
+            f.type.includes("word");
           const isPdf = lower.endsWith(".pdf") || f.type === "application/pdf";
 
           if (isWord) {
@@ -147,18 +187,24 @@ function AdminUpload() {
 
           // PDFs & images pass through immediately matching Manual Edit behavior
           return f;
-        })
+        }),
       );
       updateSlot(slot.id, { errorMsg: "Saving project..." });
-      const nameToUse = slot.customerName.trim() || slot.files[0].name.replace(/\.[^/.]+$/, "");
+      const nameToUse =
+        slot.customerName.trim() || slot.files[0].name.replace(/\.[^/.]+$/, "");
       await createProjectWithOriginals(nameToUse, processedFiles);
       updateSlot(slot.id, { status: "done" });
     } catch (err) {
-      updateSlot(slot.id, { status: "error", errorMsg: (err as Error).message });
+      updateSlot(slot.id, {
+        status: "error",
+        errorMsg: (err as Error).message,
+      });
     }
   };
 
-  const readySlots = slots.filter((s) => s.files.length > 0 && s.status !== "done");
+  const readySlots = slots.filter(
+    (s) => s.files.length > 0 && s.status !== "done",
+  );
   const readyCount = readySlots.length;
 
   const uploadAllReady = async () => {
@@ -184,8 +230,12 @@ function AdminUpload() {
               <ArrowLeft className="h-4 w-4" /> Back to Dashboard
             </button>
             <div>
-              <h1 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">Admin Upload</h1>
-              <p className="text-xs text-slate-500">Create new FileMyRTI projects for processing</p>
+              <h1 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+                Admin Upload
+              </h1>
+              <p className="text-xs text-slate-500">
+                Create new FileMyRTI projects for processing
+              </p>
             </div>
           </div>
 
@@ -223,7 +273,8 @@ function AdminUpload() {
               >
                 {isUploadingAll ? (
                   <>
-                    <Loader2 className="h-4 w-4 animate-spin" /> Creating Projects...
+                    <Loader2 className="h-4 w-4 animate-spin" /> Creating
+                    Projects...
                   </>
                 ) : (
                   `Create ${readyCount === 1 ? "1 Project" : `${readyCount} Projects`}`
@@ -277,8 +328,12 @@ function AdminUpload() {
                         : "Auto-extracted from file"
                     }
                     value={slot.customerName}
-                    onChange={(e) => updateSlot(slot.id, { customerName: e.target.value })}
-                    disabled={slot.status === "uploading" || slot.status === "done"}
+                    onChange={(e) =>
+                      updateSlot(slot.id, { customerName: e.target.value })
+                    }
+                    disabled={
+                      slot.status === "uploading" || slot.status === "done"
+                    }
                     className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-800 shadow-sm transition-colors focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
                   />
                 </div>
@@ -299,7 +354,9 @@ function AdminUpload() {
                         className="absolute inset-0 cursor-pointer opacity-0"
                       />
                       <UploadCloud className="mb-1 h-5 w-5 text-blue-500" />
-                      <p className="text-xs font-bold text-slate-700">Click or drop PDFs & Images</p>
+                      <p className="text-xs font-bold text-slate-700">
+                        Click or drop PDFs & Images
+                      </p>
                       <p className="text-[10px] text-slate-400 mt-0.5">
                         PDF, JPG, JPEG, PNG, WEBP
                       </p>
@@ -308,7 +365,8 @@ function AdminUpload() {
                     <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-2.5">
                       <div className="mb-1.5 flex items-center justify-between">
                         <span className="text-[11px] font-bold text-slate-700">
-                          {slot.files.length} File{slot.files.length === 1 ? "" : "s"} attached
+                          {slot.files.length} File
+                          {slot.files.length === 1 ? "" : "s"} attached
                         </span>
                         {slot.status === "idle" && (
                           <div className="relative cursor-pointer text-[10px] font-bold text-blue-600 hover:underline">
@@ -330,7 +388,9 @@ function AdminUpload() {
                       <ul className="max-h-36 overflow-y-auto space-y-1 pr-0.5">
                         {slot.files.map((f, i) => {
                           const isImage = f.type.startsWith("image/");
-                          const isPdf = f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf");
+                          const isPdf =
+                            f.type === "application/pdf" ||
+                            f.name.toLowerCase().endsWith(".pdf");
                           return (
                             <li
                               key={i}
@@ -344,7 +404,10 @@ function AdminUpload() {
                                 ) : (
                                   <FileText className="h-3 w-3 text-blue-500 shrink-0" />
                                 )}
-                                <span className="truncate font-medium text-slate-700" title={f.name}>
+                                <span
+                                  className="truncate font-medium text-slate-700"
+                                  title={f.name}
+                                >
                                   {f.name}
                                 </span>
                               </div>
@@ -364,7 +427,9 @@ function AdminUpload() {
                                   {i < slot.files.length - 1 && (
                                     <button
                                       type="button"
-                                      onClick={() => moveFile(slot.id, i, "down")}
+                                      onClick={() =>
+                                        moveFile(slot.id, i, "down")
+                                      }
                                       className="p-0.5 text-slate-400 hover:text-slate-700 transition-colors"
                                       title="Move down"
                                     >
@@ -408,7 +473,13 @@ function AdminUpload() {
                 {slot.status === "done" ? (
                   <button
                     type="button"
-                    onClick={() => updateSlot(slot.id, { status: "idle", files: [], customerName: "" })}
+                    onClick={() =>
+                      updateSlot(slot.id, {
+                        status: "idle",
+                        files: [],
+                        customerName: "",
+                      })
+                    }
                     className="w-full rounded-lg bg-slate-100 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-200 transition-colors"
                   >
                     Reset Slot
@@ -417,12 +488,15 @@ function AdminUpload() {
                   <button
                     type="button"
                     onClick={() => uploadProject(slot)}
-                    disabled={slot.files.length === 0 || slot.status === "uploading"}
+                    disabled={
+                      slot.files.length === 0 || slot.status === "uploading"
+                    }
                     className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-blue-600 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50 transition-colors"
                   >
                     {slot.status === "uploading" ? (
                       <>
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Creating...
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />{" "}
+                        Creating...
                       </>
                     ) : (
                       "Create Project"

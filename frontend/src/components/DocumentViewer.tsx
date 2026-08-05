@@ -1,6 +1,21 @@
 import React, { useEffect, useState, useRef, useMemo } from "react";
-import { X, ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight, Loader2, AlertCircle, RotateCw, Download } from "lucide-react";
+import {
+  X,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
+  AlertCircle,
+  RotateCw,
+  Download,
+  Stamp,
+} from "lucide-react";
 import { renderPdfPage } from "@/lib/pdf-thumbnails";
+
+import type { PageSticker } from "@/lib/stickers";
+import { StickerLayerManager } from "./stickers/StickerLayerManager";
 
 export type ViewerTimelineItem = {
   id: string;
@@ -10,6 +25,7 @@ export type ViewerTimelineItem = {
   pageIndex: number;
   totalPages: number;
   rotation?: number;
+  stickers?: PageSticker[];
 };
 
 type Props = {
@@ -18,6 +34,8 @@ type Props = {
   items: ViewerTimelineItem[];
   initialIndex: number;
   onRotateItem?: (entryId: string) => void;
+  onUpdateStickers?: (entryId: string, updatedStickers: PageSticker[]) => void;
+  onAddCourtStamp?: (entryId: string) => void;
 };
 
 export function DocumentViewer({
@@ -26,6 +44,8 @@ export function DocumentViewer({
   items,
   initialIndex,
   onRotateItem,
+  onUpdateStickers,
+  onAddCourtStamp,
 }: Props) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [zoom, setZoom] = useState(1.0);
@@ -35,6 +55,7 @@ export function DocumentViewer({
   const [error, setError] = useState<string | null>(null);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const pageWrapperRef = useRef<HTMLDivElement | null>(null);
 
   // Sync index when initialIndex changes or modal opens
   useEffect(() => {
@@ -63,7 +84,12 @@ export function DocumentViewer({
     setError(null);
 
     // Render page at scale = 1.5 for high resolution full-screen viewing
-    renderPdfPage(`viewer-${activeItem.id}-${activeItem.pageIndex}`, activeItem.file, activeItem.pageIndex, 1.5)
+    renderPdfPage(
+      `viewer-${activeItem.id}-${activeItem.pageIndex}`,
+      activeItem.file,
+      activeItem.pageIndex,
+      1.5,
+    )
       .then((url) => {
         if (!active) return;
         if (url) {
@@ -82,7 +108,12 @@ export function DocumentViewer({
     return () => {
       active = false;
     };
-  }, [activeItem]);
+  }, [
+    activeItem?.id,
+    activeItem?.kind,
+    activeItem?.pageIndex,
+    activeItem?.file,
+  ]);
 
   // Object URL for image files
   const imageUrl = useMemo(() => {
@@ -123,7 +154,10 @@ export function DocumentViewer({
   // Download active item handler
   const handleDownloadCurrent = () => {
     if (!activeItem) return;
-    const url = activeItem.kind === "image" && imageUrl ? imageUrl : URL.createObjectURL(activeItem.file);
+    const url =
+      activeItem.kind === "image" && imageUrl
+        ? imageUrl
+        : URL.createObjectURL(activeItem.file);
     const a = document.createElement("a");
     a.href = url;
     a.download = activeItem.name || `document_page_${currentIndex + 1}`;
@@ -182,7 +216,9 @@ export function DocumentViewer({
             <span className="rounded bg-blue-500/20 px-2 py-0.5 text-xs font-bold text-blue-400 border border-blue-500/30">
               {currentIndex + 1} of {items.length}
             </span>
-            <p className="truncate text-sm font-bold text-white">{activeItem.name}</p>
+            <p className="truncate text-sm font-bold text-white">
+              {activeItem.name}
+            </p>
           </div>
           <p className="text-[11px] text-slate-400 mt-0.5">
             {activeItem.kind === "pdf"
@@ -192,7 +228,19 @@ export function DocumentViewer({
         </div>
 
         {/* Action Controls */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
+          {/* 📑 Court Stamp Quick Action Button */}
+          <button
+            type="button"
+            title="Insert Court Stamp onto this page"
+            onClick={() => onAddCourtStamp?.(activeItem.id)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white shadow-md hover:bg-blue-700 active:scale-95 transition-all cursor-pointer"
+          >
+            <Stamp className="h-4 w-4" /> 📑 Court Stamp
+          </button>
+
+          <div className="mx-1 h-5 w-px bg-white/15" />
+
           {/* Rotate */}
           <button
             type="button"
@@ -283,33 +331,50 @@ export function DocumentViewer({
             }}
             className="flex items-center justify-center p-4 max-w-full max-h-full"
           >
-            {activeItem.kind === "image" ? (
-              imageUrl ? (
+            <div
+              ref={pageWrapperRef}
+              className="relative flex items-center justify-center max-w-full max-h-full"
+            >
+              {activeItem.kind === "image" ? (
+                imageUrl ? (
+                  <img
+                    src={imageUrl}
+                    alt={activeItem.name}
+                    className="max-h-[80vh] max-w-[85vw] object-contain select-none shadow-2xl rounded bg-white"
+                    draggable={false}
+                  />
+                ) : null
+              ) : loading ? (
+                <div className="flex flex-col items-center gap-3 py-10">
+                  <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+                  <span className="text-sm text-slate-400">
+                    Rendering PDF page...
+                  </span>
+                </div>
+              ) : error ? (
+                <div className="flex flex-col items-center gap-2 rounded-xl bg-red-500/10 border border-red-500/20 p-6 max-w-sm text-center">
+                  <AlertCircle className="h-6 w-6 text-red-500" />
+                  <p className="text-xs text-red-400">{error}</p>
+                </div>
+              ) : pdfUrl ? (
                 <img
-                  src={imageUrl}
-                  alt={activeItem.name}
-                  className="max-h-[80vh] max-w-[85vw] object-contain select-none shadow-2xl rounded bg-white"
+                  src={pdfUrl}
+                  alt={`PDF Page ${activeItem.pageIndex + 1}`}
+                  className="max-h-[80vh] max-w-[85vw] object-contain shadow-2xl rounded bg-white"
                   draggable={false}
                 />
-              ) : null
-            ) : loading ? (
-              <div className="flex flex-col items-center gap-3 py-10">
-                <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
-                <span className="text-sm text-slate-400">Rendering PDF page...</span>
-              </div>
-            ) : error ? (
-              <div className="flex flex-col items-center gap-2 rounded-xl bg-red-500/10 border border-red-500/20 p-6 max-w-sm text-center">
-                <AlertCircle className="h-6 w-6 text-red-500" />
-                <p className="text-xs text-red-400">{error}</p>
-              </div>
-            ) : pdfUrl ? (
-              <img
-                src={pdfUrl}
-                alt={`PDF Page ${activeItem.pageIndex + 1}`}
-                className="max-h-[80vh] max-w-[85vw] object-contain shadow-2xl rounded bg-white"
-                draggable={false}
+              ) : null}
+
+              {/* Interactive Sticker Layer Manager on Full-Screen Document Viewer */}
+              <StickerLayerManager
+                stickers={activeItem.stickers ?? []}
+                containerRef={pageWrapperRef}
+                onChange={(updated) =>
+                  onUpdateStickers?.(activeItem.id, updated)
+                }
+                readOnly={false}
               />
-            ) : null}
+            </div>
           </div>
         </div>
 
@@ -327,7 +392,8 @@ export function DocumentViewer({
 
       {/* Bottom Status / Indicator bar */}
       <footer className="text-center py-2 bg-slate-900/90 border-t border-white/10 text-[11px] text-slate-400 select-none">
-        Navigate: <b>←</b> / <b>→</b> Arrow keys · Zoom: <b>+</b> / <b>-</b> · Rotate: <b>R</b> · Close: <b>Esc</b>
+        Navigate: <b>←</b> / <b>→</b> Arrow keys · Zoom: <b>+</b> / <b>-</b> ·
+        Rotate: <b>R</b> · Close: <b>Esc</b>
       </footer>
     </div>
   );

@@ -55,15 +55,21 @@ export class BackendServiceManager {
    */
   async processDocument(
     file: File,
-    options?: ProcessDocumentOptions
+    options?: ProcessDocumentOptions,
   ): Promise<ProcessDocumentResult> {
     const lower = file.name.toLowerCase();
-    const isWord = lower.endsWith(".doc") || lower.endsWith(".docx") || file.type.includes("word");
+    const isWord =
+      lower.endsWith(".doc") ||
+      lower.endsWith(".docx") ||
+      file.type.includes("word");
 
     if (isWord) {
-      const convertedPdf = await convertWordToPdfOnServer(file, (stage: UploadStage) => {
-        if (options?.onStatus) options.onStatus(stage);
-      });
+      const convertedPdf = await convertWordToPdfOnServer(
+        file,
+        (stage: UploadStage) => {
+          if (options?.onStatus) options.onStatus(stage);
+        },
+      );
       return {
         file: convertedPdf,
         converted: true,

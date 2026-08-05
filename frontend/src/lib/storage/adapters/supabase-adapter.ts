@@ -17,11 +17,19 @@ import {
   deleteDraft as deleteIdbDraft,
 } from "../../manual-drafts";
 import { IndexedDbStorageAdapter } from "./indexeddb-adapter";
+import { safeRandomUUID } from "@/lib/utils";
 
 const BUCKET = "rti-files";
 
 function slugify(s: string) {
-  return s.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "file";
+  return (
+    s
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40) || "file"
+  );
 }
 
 function mimeForItem(kind: "pdf" | "image", name: string) {
@@ -29,7 +37,11 @@ function mimeForItem(kind: "pdf" | "image", name: string) {
   return name.toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
 }
 
-async function withTimeout<T>(promise: Promise<T>, ms: number, errorMessage: string): Promise<T> {
+async function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  errorMessage: string,
+): Promise<T> {
   let timer: NodeJS.Timeout;
   const timeoutPromise = new Promise<T>((_, reject) => {
     timer = setTimeout(() => reject(new Error(errorMessage)), ms);
@@ -58,8 +70,11 @@ export class SupabaseStorageAdapter implements IStorageProvider {
       const cloudDocs = (data ?? []) as RtiDocument[];
       const mergedMap = new Map<string, RtiDocument>();
       for (const d of cloudDocs) mergedMap.set(d.id, d);
-      for (const d of localDocs) if (!mergedMap.has(d.id)) mergedMap.set(d.id, d);
-      return Array.from(mergedMap.values()).sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+      for (const d of localDocs)
+        if (!mergedMap.has(d.id)) mergedMap.set(d.id, d);
+      return Array.from(mergedMap.values()).sort((a, b) =>
+        a.created_at < b.created_at ? 1 : -1,
+      );
     } catch {
       return localDocs;
     }
@@ -69,18 +84,30 @@ export class SupabaseStorageAdapter implements IStorageProvider {
     try {
       return await this.fallbackAdapter.getDocument(id);
     } catch {
-      const { data, error } = await supabase.from("rti_documents").select("*").eq("id", id).single();
+      const { data, error } = await supabase
+        .from("rti_documents")
+        .select("*")
+        .eq("id", id)
+        .single();
       if (error) throw error;
       return data as RtiDocument;
     }
   }
 
   async uploadOriginalFile(docId: string, file: File): Promise<string> {
-    const localPath = await this.fallbackAdapter.uploadOriginalFile(docId, file);
+    const localPath = await this.fallbackAdapter.uploadOriginalFile(
+      docId,
+      file,
+    );
     const path = `${docId}/originals/${crypto.randomUUID()}-${slugify(file.name)}.pdf`;
     (async () => {
       try {
-        await supabase.storage.from(BUCKET).upload(path, file, { contentType: "application/pdf", upsert: false });
+        await supabase.storage
+          .from(BUCKET)
+          .upload(path, file, {
+            contentType: "application/pdf",
+            upsert: false,
+          });
       } catch {
         /* ignore background error */
       }
@@ -90,14 +117,17 @@ export class SupabaseStorageAdapter implements IStorageProvider {
 
   private async uploadTempOriginal(file: File): Promise<string> {
     const path = `_incoming/${crypto.randomUUID()}-${slugify(file.name)}.pdf`;
-    const timeoutMs = Math.max(60000, Math.ceil(file.size / (1024 * 1024)) * 4000);
+    const timeoutMs = Math.max(
+      60000,
+      Math.ceil(file.size / (1024 * 1024)) * 4000,
+    );
     const { error } = await withTimeout(
       supabase.storage.from(BUCKET).upload(path, file, {
         contentType: "application/pdf",
         upsert: false,
       }),
       timeoutMs,
-      `Upload of "${file.name}" timed out.`
+      `Upload of "${file.name}" timed out.`,
     );
     if (error) throw error;
     return path;
@@ -113,7 +143,11 @@ export class SupabaseStorageAdapter implements IStorageProvider {
     }
   }
 
-  private async asyncCloudSync(customerName: string, files: File[], docId: string): Promise<void> {
+  private async asyncCloudSync(
+    customerName: string,
+    files: File[],
+    docId: string,
+  ): Promise<void> {
     try {
       const first = files[0];
       const firstPath = await this.uploadTempOriginal(first);
@@ -132,13 +166,23 @@ export class SupabaseStorageAdapter implements IStorageProvider {
       if (docErr) return;
 
       const rows: Omit<RtiOriginal, "id" | "created_at">[] = [];
-      const finalFirstPath = await this.moveObject(firstPath, `${doc.id}/originals/0-${slugify(first.name)}.pdf`);
-      rows.push({ document_id: doc.id, path: finalFirstPath, name: first.name, sort_order: 0 });
+      const finalFirstPath = await this.moveObject(
+        firstPath,
+        `${doc.id}/originals/0-${slugify(first.name)}.pdf`,
+      );
+      rows.push({
+        document_id: doc.id,
+        path: finalFirstPath,
+        name: first.name,
+        sort_order: 0,
+      });
 
       for (let i = 1; i < files.length; i++) {
         const f = files[i];
         const path = `${doc.id}/originals/${i}-${slugify(f.name)}.pdf`;
-        await supabase.storage.from(BUCKET).upload(path, f, { contentType: "application/pdf", upsert: false });
+        await supabase.storage
+          .from(BUCKET)
+          .upload(path, f, { contentType: "application/pdf", upsert: false });
         rows.push({ document_id: doc.id, path, name: f.name, sort_order: i });
       }
 
@@ -152,11 +196,18 @@ export class SupabaseStorageAdapter implements IStorageProvider {
     }
   }
 
-  async createProjectWithOriginals(customerName: string, files: File[]): Promise<RtiDocument> {
-    if (files.length === 0) throw new Error("At least one PDF or document file is required.");
+  async createProjectWithOriginals(
+    customerName: string,
+    files: File[],
+  ): Promise<RtiDocument> {
+    if (files.length === 0)
+      throw new Error("At least one PDF or document file is required.");
 
     // 1. Instant local store in IndexedDB (< 0.05 seconds) so project creation finishes IMMEDIATELY
-    const localDoc = await this.fallbackAdapter.createProjectWithOriginals(customerName, files);
+    const localDoc = await this.fallbackAdapter.createProjectWithOriginals(
+      customerName,
+      files,
+    );
 
     // 2. Asynchronous background cloud sync to Supabase (non-blocking)
     this.asyncCloudSync(customerName, files, localDoc.id).catch((err) => {
@@ -175,7 +226,7 @@ export class SupabaseStorageAdapter implements IStorageProvider {
       plan_json: SavedPlan;
       rti_type_selected: RtiTypeSelected;
       deletion_scheduled_at: string | null;
-    }>
+    }>,
   ): Promise<RtiDocument> {
     const updatedLocal = await this.fallbackAdapter.updateDocument(id, patch);
     (async () => {
@@ -214,12 +265,25 @@ export class SupabaseStorageAdapter implements IStorageProvider {
     return (data ?? []) as RtiOriginal[];
   }
 
-  async uploadItemFile(docId: string, file: File, kind: "pdf" | "image"): Promise<string> {
-    const localPath = await this.fallbackAdapter.uploadItemFile(docId, file, kind);
-    const path = `${docId}/items/${crypto.randomUUID()}-${slugify(file.name)}.${kind === "pdf" ? "pdf" : "jpg"}`;
+  async uploadItemFile(
+    docId: string,
+    file: File,
+    kind: "pdf" | "image",
+  ): Promise<string> {
+    const localPath = await this.fallbackAdapter.uploadItemFile(
+      docId,
+      file,
+      kind,
+    );
+    const path = `${docId}/items/${safeRandomUUID()}-${slugify(file.name)}.${kind === "pdf" ? "pdf" : "jpg"}`;
     (async () => {
       try {
-        await supabase.storage.from(BUCKET).upload(path, file, { contentType: mimeForItem(kind, file.name), upsert: false });
+        await supabase.storage
+          .from(BUCKET)
+          .upload(path, file, {
+            contentType: mimeForItem(kind, file.name),
+            upsert: false,
+          });
       } catch {
         /* ignore background sync error */
       }
@@ -227,12 +291,25 @@ export class SupabaseStorageAdapter implements IStorageProvider {
     return localPath;
   }
 
-  async uploadEdited(docId: string, blob: Blob, finalName: string): Promise<string> {
-    const localPath = await this.fallbackAdapter.uploadEdited(docId, blob, finalName);
-    const path = `${docId}/edited/${crypto.randomUUID()}-${slugify(finalName)}.pdf`;
+  async uploadEdited(
+    docId: string,
+    blob: Blob,
+    finalName: string,
+  ): Promise<string> {
+    const localPath = await this.fallbackAdapter.uploadEdited(
+      docId,
+      blob,
+      finalName,
+    );
+    const path = `${docId}/edited/${safeRandomUUID()}-${slugify(finalName)}.pdf`;
     (async () => {
       try {
-        await supabase.storage.from(BUCKET).upload(path, blob, { contentType: "application/pdf", upsert: false });
+        await supabase.storage
+          .from(BUCKET)
+          .upload(path, blob, {
+            contentType: "application/pdf",
+            upsert: false,
+          });
       } catch {
         /* ignore background sync error */
       }
@@ -240,11 +317,17 @@ export class SupabaseStorageAdapter implements IStorageProvider {
     return localPath;
   }
 
-  async downloadFromPath(path: string, filename: string, mime: string): Promise<File> {
+  async downloadFromPath(
+    path: string,
+    filename: string,
+    mime: string,
+  ): Promise<File> {
     try {
       return await this.fallbackAdapter.downloadFromPath(path, filename, mime);
     } catch {
-      const { data, error } = await supabase.storage.from(BUCKET).download(path);
+      const { data, error } = await supabase.storage
+        .from(BUCKET)
+        .download(path);
       if (error) throw error;
       return new File([data], filename, { type: mime });
     }
@@ -270,23 +353,130 @@ export class SupabaseStorageAdapter implements IStorageProvider {
     return deleteIdbDraft(id);
   }
 
-  async createMobileToken(docId: string, ttlMinutes = 60): Promise<MobileToken> {
-    return this.fallbackAdapter.createMobileToken(docId, ttlMinutes);
+  async createMobileToken(
+    docId: string,
+    ttlMinutes = 120,
+  ): Promise<MobileToken> {
+    const localToken = await this.fallbackAdapter.createMobileToken(
+      docId,
+      ttlMinutes,
+    );
+    try {
+      await supabase.from("rti_mobile_tokens").insert({
+        id: localToken.id,
+        document_id: docId,
+        token: localToken.token,
+        expires_at: localToken.expires_at,
+        created_at: localToken.created_at,
+      });
+    } catch {
+      /* ignore if cloud DB table offline */
+    }
+    return localToken;
   }
 
-  async getOrCreateActiveMobileToken(docId: string, ttlMinutes = 60): Promise<MobileToken> {
-    return this.fallbackAdapter.getOrCreateActiveMobileToken(docId, ttlMinutes);
+  async getOrCreateActiveMobileToken(
+    docId: string,
+    ttlMinutes = 120,
+  ): Promise<MobileToken> {
+    try {
+      const { data } = await supabase
+        .from("rti_mobile_tokens")
+        .select("*")
+        .eq("document_id", docId)
+        .gt("expires_at", new Date(Date.now() + 5000).toISOString())
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (data && data.length > 0) {
+        return data[0] as MobileToken;
+      }
+    } catch {
+      /* fallback to local */
+    }
+    return this.createMobileToken(docId, ttlMinutes);
   }
 
   async getTokenInfo(token: string): Promise<MobileToken | null> {
-    return this.fallbackAdapter.getTokenInfo(token);
+    const local = await this.fallbackAdapter.getTokenInfo(token);
+    if (local) return local;
+
+    try {
+      const { data } = await supabase
+        .from("rti_mobile_tokens")
+        .select("*")
+        .eq("token", token)
+        .maybeSingle();
+      if (data) return data as MobileToken;
+    } catch {
+      /* ignore */
+    }
+    return null;
   }
 
-  async uploadMobileFile(docId: string, token: string, file: File): Promise<string> {
-    return this.fallbackAdapter.uploadMobileFile(docId, token, file);
+  async uploadMobileFile(
+    docId: string,
+    token: string,
+    file: File,
+  ): Promise<string> {
+    const localPath = await this.fallbackAdapter.uploadMobileFile(
+      docId,
+      token,
+      file,
+    );
+    const cloudPath = `${docId}/items/${Date.now()}-${safeRandomUUID()}-mobile-${file.name}`;
+    try {
+      const contentType =
+        file.type ||
+        (file.name.toLowerCase().endsWith(".pdf")
+          ? "application/pdf"
+          : "image/jpeg");
+      await supabase.storage
+        .from(BUCKET)
+        .upload(cloudPath, file, { contentType, upsert: true });
+      await supabase
+        .from("rti_mobile_tokens")
+        .update({
+          expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
+        })
+        .eq("token", token);
+    } catch (err) {
+      console.warn("Cloud mobile file upload notice:", err);
+    }
+    return localPath;
   }
 
-  async listMobileUploads(docId: string): Promise<{ name: string; path: string }[]> {
-    return this.fallbackAdapter.listMobileUploads(docId);
+  async listMobileUploads(
+    docId: string,
+  ): Promise<{ name: string; path: string }[]> {
+    const localMatches = await this.fallbackAdapter.listMobileUploads(docId);
+    const seenPaths = new Set(localMatches.map((m) => m.path));
+    const combined = [...localMatches];
+
+    try {
+      const { data } = await supabase.storage
+        .from(BUCKET)
+        .list(`${docId}/items`, {
+          limit: 1000,
+          sortBy: { column: "created_at", order: "asc" },
+        });
+
+      if (data && data.length > 0) {
+        for (const f of data) {
+          if (f.name.includes("-mobile-")) {
+            const path = `${docId}/items/${f.name}`;
+            if (!seenPaths.has(path)) {
+              seenPaths.add(path);
+              const cleanName = f.name.replace(/^\d+-[a-f0-9-]+-mobile-/, "");
+              combined.push({ name: cleanName, path });
+            }
+          }
+        }
+      }
+    } catch {
+      /* ignore Supabase list error */
+    }
+
+    return combined;
   }
 }

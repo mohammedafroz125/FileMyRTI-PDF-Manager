@@ -6,10 +6,13 @@
  * If unconfigured or offline, gracefully falls back to browser-native processing (0 backend dependency).
  */
 
-export type OptimizationProfile = "High Quality" | "Balanced" | "Maximum Compression";
-export type UploadStage = "Uploading..." | "Converting..." | "Optimizing..." | "Ready";
+export type OptimizationProfile =
+  "High Quality" | "Balanced" | "Maximum Compression";
+export type UploadStage =
+  "Uploading..." | "Converting..." | "Optimizing..." | "Ready";
 
-let backendAvailabilityCache: { available: boolean; timestamp: number } | null = null;
+let backendAvailabilityCache: { available: boolean; timestamp: number } | null =
+  null;
 const CACHE_TTL_MS = 60_000; // Cache availability check for 60 seconds
 
 /**
@@ -17,9 +20,22 @@ const CACHE_TTL_MS = 60_000; // Cache availability check for 60 seconds
  * Never hardcodes fallback localhost URLs in source code.
  */
 export function getBackendUrl(): string | null {
-  const envUrl = (import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_PDF_OPTIMIZER_URL) as string | undefined;
+  const envUrl = (import.meta.env.VITE_BACKEND_URL ||
+    import.meta.env.VITE_PDF_OPTIMIZER_URL) as string | undefined;
   if (!envUrl) return null;
-  const trimmed = envUrl.trim().replace(/\/+$/, "");
+  let trimmed = envUrl.trim().replace(/\/+$/, "");
+
+  // If app is opened on mobile phone via LAN IP (e.g. 192.168.x.x) or external host,
+  // adapt 'localhost' in VITE_BACKEND_URL to the current page hostname so mobile phone can reach backend.
+  if (typeof window !== "undefined" && window.location?.hostname) {
+    const pageHost = window.location.hostname;
+    if (pageHost !== "localhost" && pageHost !== "127.0.0.1") {
+      trimmed = trimmed
+        .replace("localhost", pageHost)
+        .replace("127.0.0.1", pageHost);
+    }
+  }
+
   return trimmed.length > 0 ? trimmed : null;
 }
 
@@ -33,7 +49,10 @@ export async function isBackendOptimizerAvailable(): Promise<boolean> {
   if (!baseUrl) return false;
 
   // Use cached result if valid
-  if (backendAvailabilityCache && Date.now() - backendAvailabilityCache.timestamp < CACHE_TTL_MS) {
+  if (
+    backendAvailabilityCache &&
+    Date.now() - backendAvailabilityCache.timestamp < CACHE_TTL_MS
+  ) {
     return backendAvailabilityCache.available;
   }
 
@@ -68,7 +87,7 @@ export async function isBackendOptimizerAvailable(): Promise<boolean> {
 export async function optimizePdfBlobSilently(
   originalBlob: Blob,
   profile: OptimizationProfile | string = "Balanced",
-  targetSizeMB: number = 2
+  targetSizeMB: number = 2,
 ): Promise<Blob> {
   const baseUrl = getBackendUrl();
   if (!baseUrl) return originalBlob;
@@ -112,14 +131,14 @@ export async function optimizePdfBlobSilently(
  */
 export async function convertWordToPdfOnServer(
   file: File,
-  onProgress?: (stage: UploadStage) => void
+  onProgress?: (stage: UploadStage) => void,
 ): Promise<File> {
   const baseUrl = getBackendUrl();
   const isAvailable = await isBackendOptimizerAvailable();
 
   if (!baseUrl || !isAvailable) {
     throw new Error(
-      "Word document conversion requires the optional backend service. PDF files continue to work normally."
+      "Word document conversion requires the optional backend service. PDF files continue to work normally.",
     );
   }
 
@@ -158,7 +177,9 @@ export async function convertWordToPdfOnServer(
 
   const pdfArrayBuffer = await res.arrayBuffer();
   if (!pdfArrayBuffer || pdfArrayBuffer.byteLength === 0) {
-    throw new Error("Received an empty PDF response from document conversion service.");
+    throw new Error(
+      "Received an empty PDF response from document conversion service.",
+    );
   }
 
   if (onProgress) onProgress("Ready");

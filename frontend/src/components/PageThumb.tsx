@@ -1,6 +1,17 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { FileText, Image as ImageIcon, X, RotateCw, Replace, Eye, Trash2 } from "lucide-react";
+import {
+  FileText,
+  Image as ImageIcon,
+  X,
+  RotateCw,
+  Replace,
+  Eye,
+  Trash2,
+} from "lucide-react";
+
+import { type PageSticker } from "@/lib/stickers";
+import { StickerLayerManager } from "./stickers/StickerLayerManager";
 
 type Props = {
   id: string;
@@ -11,12 +22,16 @@ type Props = {
   kind: "original" | "pdf" | "image";
   rotation?: number;
   isSelected?: boolean;
+  stickers?: PageSticker[];
   /** Lazy loader; called once when the thumb enters viewport if `thumbnail` is null. */
   getThumbnail?: () => Promise<string | null>;
   onDelete?: (id: string) => void;
   onRotate?: (id: string) => void;
   onReplace?: (id: string) => void;
   onExpand?: (id: string) => void;
+  onUpdateStickers?: (entryId: string, updatedStickers: PageSticker[]) => void;
+  onUpdateSticker?: (entryId: string, updatedSticker: PageSticker) => void;
+  onRemoveSticker?: (entryId: string, stickerId: string) => void;
 };
 
 import React, { useEffect, useRef, useState } from "react";
@@ -30,14 +45,24 @@ export const PageThumb = React.memo(function PageThumb({
   kind,
   rotation = 0,
   isSelected = false,
+  stickers = [],
   getThumbnail,
   onDelete,
   onRotate,
   onReplace,
   onExpand,
+  onUpdateStickers,
+  onUpdateSticker,
+  onRemoveSticker,
 }: Props) {
-
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
     id,
   });
 
@@ -54,7 +79,8 @@ export const PageThumb = React.memo(function PageThumb({
         ? "bg-emerald-600 text-white"
         : "bg-amber-500 text-white";
 
-  const badgeText = kind === "original" ? "Original" : kind === "pdf" ? "PDF" : "Image";
+  const badgeText =
+    kind === "original" ? "Original" : kind === "pdf" ? "PDF" : "Image";
   const FallbackIcon = kind === "image" ? ImageIcon : FileText;
 
   // Lazy-load thumbnail on first visibility.
@@ -140,33 +166,64 @@ export const PageThumb = React.memo(function PageThumb({
           {badgeText}
         </span>
 
-        <div className="absolute right-1 top-1 flex flex-col gap-1.5 opacity-100 md:opacity-0 transition-opacity md:group-hover:opacity-100">
+        {/* Extensible Sticker Layer Manager (Court Stamp, IPO, Seals, etc.) */}
+        <StickerLayerManager
+          stickers={stickers}
+          containerRef={outerRef}
+          onChange={(updatedStickers) =>
+            onUpdateStickers?.(id, updatedStickers)
+          }
+        />
+
+        <div className="absolute right-1 top-1 flex flex-col gap-1.5 opacity-100 md:opacity-0 transition-opacity md:group-hover:opacity-100 z-40">
           {onExpand && (
-            <IconBtn onClick={() => onExpand(id)} onPointerDown={stop} title="View full screen">
+            <IconBtn
+              onClick={() => onExpand(id)}
+              onPointerDown={stop}
+              title="View full screen"
+            >
               <Eye className="h-4 w-4" />
             </IconBtn>
           )}
           {onRotate && (
-            <IconBtn onClick={() => onRotate(id)} onPointerDown={stop} title="Rotate 90°">
+            <IconBtn
+              onClick={() => onRotate(id)}
+              onPointerDown={stop}
+              title="Rotate 90°"
+            >
               <RotateCw className="h-4 w-4" />
             </IconBtn>
           )}
           {onReplace && (
-            <IconBtn onClick={() => onReplace(id)} onPointerDown={stop} title="Replace page">
+            <IconBtn
+              onClick={() => onReplace(id)}
+              onPointerDown={stop}
+              title="Replace page"
+            >
               <Replace className="h-4 w-4" />
             </IconBtn>
           )}
           {onDelete && (
-            <IconBtn onClick={() => onDelete(id)} onPointerDown={stop} title="Delete page" danger>
+            <IconBtn
+              onClick={() => onDelete(id)}
+              onPointerDown={stop}
+              title="Delete page"
+              danger
+            >
               <Trash2 className="h-4 w-4" />
             </IconBtn>
           )}
         </div>
-
       </div>
       <div className="border-t border-border px-2 py-1.5">
-        <p className="truncate text-[11px] font-medium text-foreground">{label}</p>
-        {sublabel && <p className="truncate text-[10px] text-muted-foreground">{sublabel}</p>}
+        <p className="truncate text-[11px] font-medium text-foreground">
+          {label}
+        </p>
+        {sublabel && (
+          <p className="truncate text-[10px] text-muted-foreground">
+            {sublabel}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -196,7 +253,9 @@ function IconBtn({
         onClick(e);
       }}
       className={`flex min-h-[36px] min-w-[36px] items-center justify-center rounded-full bg-white/95 p-2 shadow-md transition-colors ${
-        danger ? "text-red-600 hover:bg-red-50 active:bg-red-100" : "text-slate-700 hover:bg-blue-50 active:bg-blue-100"
+        danger
+          ? "text-red-600 hover:bg-red-50 active:bg-red-100"
+          : "text-slate-700 hover:bg-blue-50 active:bg-blue-100"
       }`}
     >
       {children}

@@ -8,7 +8,11 @@ import {
   useSensors,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import { SortableContext, arrayMove, rectSortingStrategy } from "@dnd-kit/sortable";
+import {
+  SortableContext,
+  arrayMove,
+  rectSortingStrategy,
+} from "@dnd-kit/sortable";
 import {
   FileText,
   Save,
@@ -26,18 +30,38 @@ import {
   QrCode,
   Image as ImageIcon,
   ArrowLeft,
+  Stamp,
+  Settings,
 } from "lucide-react";
 import { toast } from "sonner";
+import { safeRandomUUID } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
-import { optimizePdfBlobSilently, convertWordToPdfOnServer } from "@/lib/pdf-optimizer-client";
+import {
+  optimizePdfBlobSilently,
+  convertWordToPdfOnServer,
+} from "@/lib/pdf-optimizer-client";
 import { Dropzone } from "@/components/Dropzone";
 import { PageThumb } from "@/components/PageThumb";
 import { RtiSidebar } from "@/components/RtiSidebar";
 import { QrPhonePanel } from "@/components/QrPhonePanel";
 import { ImagePreviewModal } from "@/components/ImagePreviewModal";
-import { DocumentViewer, type ViewerTimelineItem } from "@/components/DocumentViewer";
+import {
+  DocumentViewer,
+  type ViewerTimelineItem,
+} from "@/components/DocumentViewer";
+import { CourtStampSetupModal } from "@/components/stickers/CourtStampSetupModal";
+import { CourtStampSettingsModal } from "@/components/stickers/CourtStampSettingsModal";
+import {
+  getCourtStampTemplate,
+  type StickerTemplate,
+  type PageSticker,
+} from "@/lib/stickers";
 import { mergeByPlan, type MergeItem, type PlanEntry } from "@/lib/pdf-merge";
-import { getPdfPageCount, renderPdfPage, evictPdfDoc } from "@/lib/pdf-thumbnails";
+import {
+  getPdfPageCount,
+  renderPdfPage,
+  evictPdfDoc,
+} from "@/lib/pdf-thumbnails";
 import {
   deleteDocumentData,
   downloadFromPath,
@@ -51,6 +75,7 @@ import {
   type RtiDocument,
   type RtiStatus,
   type RtiTypeSelected,
+  ALL_RTI_TYPES,
   type SavedPlan,
   type SavedPlanItem,
   type SavedTimelineEntry,
@@ -66,7 +91,6 @@ import {
   type ManualDraft,
 } from "@/lib/manual-drafts";
 
-
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
@@ -76,7 +100,10 @@ export const Route = createFileRoute("/")({
         content:
           "Internal RTI PDF Manager. Manage pending projects, merge PDFs and images, capture ACKs from mobile.",
       },
-      { property: "og:title", content: "RTI PDF Manager — Pending Queue & Editor" },
+      {
+        property: "og:title",
+        content: "RTI PDF Manager — Pending Queue & Editor",
+      },
       { property: "og:description", content: "Internal RTI PDF Manager." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -99,7 +126,8 @@ const STATUS_TEXT: Record<RtiStatus, string> = {
 
 const MANUAL_PROJECT_ID = "manual-edit"; // legacy
 const DRAFT_PREFIX = "draft:";
-const isDraftId = (id: string | null | undefined) => !!id && id.startsWith(DRAFT_PREFIX);
+const isDraftId = (id: string | null | undefined) =>
+  !!id && id.startsWith(DRAFT_PREFIX);
 
 type ProjectCacheEntry = {
   activeDoc: RtiDocument;
@@ -119,13 +147,22 @@ type ProjectCacheEntry = {
 function classify(file: File): "pdf" | "image" | "word" | null {
   const n = file.name.toLowerCase();
   if (n.endsWith(".pdf") || file.type === "application/pdf") return "pdf";
-  if (/\.(jpe?g|png|webp)$/.test(n) || file.type.startsWith("image/")) return "image";
-  if (/\.(docx?)$/.test(n) || file.type.includes("wordprocessingml") || file.type.includes("msword")) return "word";
+  if (/\.(jpe?g|png|webp)$/.test(n) || file.type.startsWith("image/"))
+    return "image";
+  if (
+    /\.(docx?)$/.test(n) ||
+    file.type.includes("wordprocessingml") ||
+    file.type.includes("msword")
+  )
+    return "word";
   return null;
 }
 
 function sanitizeFile(name: string): string {
-  return name.replace(/[\\/:*?"<>|]+/g, "_").replace(/\s+/g, " ").trim();
+  return name
+    .replace(/[\\/:*?"<>|]+/g, "_")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -140,7 +177,18 @@ function downloadBlob(blob: Blob, filename: string) {
 }
 
 async function savePdfBlob(blob: Blob, filename: string): Promise<boolean> {
-  const picker = (window as unknown as { showSaveFilePicker?: (opts: unknown) => Promise<{ createWritable: () => Promise<{ write: (b: Blob) => Promise<void>; close: () => Promise<void> }> }> }).showSaveFilePicker;
+  const picker = (
+    window as unknown as {
+      showSaveFilePicker?: (
+        opts: unknown,
+      ) => Promise<{
+        createWritable: () => Promise<{
+          write: (b: Blob) => Promise<void>;
+          close: () => Promise<void>;
+        }>;
+      }>;
+    }
+  ).showSaveFilePicker;
   if (typeof picker !== "function") {
     downloadBlob(blob, filename);
     return true;
@@ -148,7 +196,12 @@ async function savePdfBlob(blob: Blob, filename: string): Promise<boolean> {
   try {
     const handle = await picker({
       suggestedName: filename,
-      types: [{ description: "PDF document", accept: { "application/pdf": [".pdf"] } }],
+      types: [
+        {
+          description: "PDF document",
+          accept: { "application/pdf": [".pdf"] },
+        },
+      ],
     });
     const writable = await handle.createWritable();
     await writable.write(blob);
@@ -161,7 +214,10 @@ async function savePdfBlob(blob: Blob, filename: string): Promise<boolean> {
   }
 }
 
-async function fileToPdf(file: File, onStatus?: (msg: string) => void): Promise<File | null> {
+async function fileToPdf(
+  file: File,
+  onStatus?: (msg: string) => void,
+): Promise<File | null> {
   const kind = classify(file);
   if (kind === "pdf") {
     return file;
@@ -183,13 +239,17 @@ async function fileToPdf(file: File, onStatus?: (msg: string) => void): Promise<
       const url = URL.createObjectURL(file);
       const img = new Image();
       img.src = url;
-      await new Promise((r) => { img.onload = r; });
+      await new Promise((r) => {
+        img.onload = r;
+      });
       const imgProps = pdf.getImageProperties(img);
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
       pdf.addImage(img, "JPEG", 0, 0, pdfWidth, pdfHeight);
       URL.revokeObjectURL(url);
-      return new File([pdf.output("blob")], file.name + ".pdf", { type: "application/pdf" });
+      return new File([pdf.output("blob")], file.name + ".pdf", {
+        type: "application/pdf",
+      });
     } catch (e) {
       console.error("Image conversion failed", e);
       return null;
@@ -200,7 +260,8 @@ async function fileToPdf(file: File, onStatus?: (msg: string) => void): Promise<
 
 async function optimizeImage(file: File): Promise<File> {
   const lower = file.name.toLowerCase();
-  if (!/\.(jpe?g|png|webp)$/.test(lower) && !file.type.startsWith("image/")) return file;
+  if (!/\.(jpe?g|png|webp)$/.test(lower) && !file.type.startsWith("image/"))
+    return file;
 
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -238,7 +299,7 @@ async function optimizeImage(file: File): Promise<File> {
             }
           },
           "image/jpeg",
-          0.82
+          0.82,
         );
       };
       img.onerror = () => resolve(file);
@@ -256,13 +317,21 @@ function defaultPdfNameForDoc(doc: RtiDocument): string {
 
 function Index() {
   const [activeDoc, setActiveDoc] = useState<RtiDocument | null>(null);
-  const [originals, setOriginals] = useState<{ id: string; name: string; file: File }[]>([]);
-  const [originalThumbs, setOriginalThumbs] = useState<Record<string, string[]>>({});
-  const [originalPageCounts, setOriginalPageCounts] = useState<Record<string, number>>({});
+  const [originals, setOriginals] = useState<
+    { id: string; name: string; file: File }[]
+  >([]);
+  const [originalThumbs, setOriginalThumbs] = useState<
+    Record<string, string[]>
+  >({});
+  const [originalPageCounts, setOriginalPageCounts] = useState<
+    Record<string, number>
+  >({});
   const [items, setItems] = useState<MergeItem[]>([]);
   const [itemPaths, setItemPaths] = useState<Record<string, string>>({});
   const [itemThumbs, setItemThumbs] = useState<Record<string, string[]>>({});
-  const [itemPageCounts, setItemPageCounts] = useState<Record<string, number>>({});
+  const [itemPageCounts, setItemPageCounts] = useState<Record<string, number>>(
+    {},
+  );
   const [timeline, setTimeline] = useState<SavedTimelineEntry[]>([]);
   const [pdfName, setPdfName] = useState<string>("");
   const [pageRange, setPageRange] = useState<string>("");
@@ -276,30 +345,154 @@ function Index() {
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const persistTimerRef = useRef<number | null>(null);
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
-  const manualSessionIdRef = useRef<string>(crypto.randomUUID());
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+  );
+  const manualSessionIdRef = useRef<string>(safeRandomUUID());
   const [drafts, setDrafts] = useState<DraftSummary[]>([]);
   const draftLoadingRef = useRef(false);
   const draftSaveTimerRef = useRef<number | null>(null);
-  const [previewImage, setPreviewImage] = useState<{ src: string; alt: string } | null>(null);
+  const [previewImage, setPreviewImage] = useState<{
+    src: string;
+    alt: string;
+  } | null>(null);
   const [isCreatingDraft, setIsCreatingDraft] = useState(false);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const [viewerPdfPage, setViewerPdfPage] = useState<number>(0);
-  const [rtiTypeSelected, setRtiTypeSelected] = useState<RtiTypeSelected>("RTI Application");
+  const [rtiTypeSelected, setRtiTypeSelected] =
+    useState<RtiTypeSelected>("RTI Application");
   const [userToggledAppend, setUserToggledAppend] = useState(false);
   const [appendRtiType, setAppendRtiType] = useState(true);
   const [mobileView, setMobileView] = useState<"queue" | "workspace">("queue");
+
+  const [courtStampTemplate, setCourtStampTemplate] =
+    useState<StickerTemplate | null>(null);
+  const [isCourtStampSetupOpen, setIsCourtStampSetupOpen] = useState(false);
+  const [isCourtStampSettingsOpen, setIsCourtStampSettingsOpen] =
+    useState(false);
+  const [selectedPageEntryId, setSelectedPageEntryId] = useState<string | null>(
+    null,
+  );
+
+  // Load Court Stamp template on mount
+  useEffect(() => {
+    void (async () => {
+      const template = await getCourtStampTemplate();
+      setCourtStampTemplate(template);
+    })();
+  }, []);
+
+  const handleUpdatePageStickers = (
+    entryId: string,
+    updatedStickers: PageSticker[],
+  ) => {
+    setTimeline((prev) =>
+      prev.map((e) => {
+        if (e.id !== entryId) return e;
+        return { ...e, stickers: updatedStickers };
+      }),
+    );
+  };
+
+  // Update or remove sticker on timeline entry
+  const handleUpdatePageSticker = (
+    entryId: string,
+    updatedSticker: PageSticker,
+  ) => {
+    setTimeline((prev) =>
+      prev.map((e) => {
+        if (e.id !== entryId) return e;
+        const stickers = e.stickers ? [...e.stickers] : [];
+        const idx = stickers.findIndex((s) => s.id === updatedSticker.id);
+        if (idx >= 0) {
+          stickers[idx] = updatedSticker;
+        } else {
+          stickers.push(updatedSticker);
+        }
+        return { ...e, stickers };
+      }),
+    );
+  };
+
+  const handleRemovePageSticker = (entryId: string, stickerId: string) => {
+    setTimeline((prev) =>
+      prev.map((e) => {
+        if (e.id !== entryId) return e;
+        const stickers = (e.stickers ?? []).filter((s) => s.id !== stickerId);
+        return { ...e, stickers };
+      }),
+    );
+  };
+
+  // 1-Click Court Stamp Insertion Logic
+  const handleCourtStampClick = async () => {
+    if (timeline.length === 0) {
+      toast.error("Please add a document page first.");
+      return;
+    }
+
+    if (!courtStampTemplate) {
+      // First time setup: open setup modal
+      setIsCourtStampSetupOpen(true);
+      return;
+    }
+
+    // Determine target page entry ID (selected page or first page)
+    const targetEntryId = selectedPageEntryId ?? timeline[0]?.id;
+    if (!targetEntryId) return;
+
+    const newSticker: PageSticker = {
+      id: `sticker_${safeRandomUUID()}`,
+      type: "court_stamp",
+      templateId: courtStampTemplate.id,
+      imageDataUrl: courtStampTemplate.imageDataUrl,
+      x: courtStampTemplate.defaultX,
+      y: courtStampTemplate.defaultY,
+      width: courtStampTemplate.defaultWidth,
+      height: courtStampTemplate.defaultHeight,
+    };
+
+    handleUpdatePageSticker(targetEntryId, newSticker);
+    setSelectedPageEntryId(targetEntryId);
+    toast.success("Court Stamp added to page!");
+  };
+
+  const handleCourtStampSetupSaved = (template: StickerTemplate) => {
+    setCourtStampTemplate(template);
+    // Immediately insert onto active page
+    const targetEntryId = selectedPageEntryId ?? timeline[0]?.id;
+    if (targetEntryId) {
+      const newSticker: PageSticker = {
+        id: `sticker_${safeRandomUUID()}`,
+        type: "court_stamp",
+        templateId: template.id,
+        imageDataUrl: template.imageDataUrl,
+        x: template.defaultX,
+        y: template.defaultY,
+        width: template.defaultWidth,
+        height: template.defaultHeight,
+      };
+      handleUpdatePageSticker(targetEntryId, newSticker);
+      setSelectedPageEntryId(targetEntryId);
+    }
+  };
 
   const isFullDownload = !pageRange.trim();
   const effectiveAppendRTI = userToggledAppend ? appendRtiType : isFullDownload;
 
   const getOutputFilename = () => {
     if (!activeDoc) return "Merged_PDF.pdf";
-    const fallback = activeDoc.original_name.replace(/\.pdf$/i, "") || "Merged_PDF";
+    const fallback =
+      activeDoc.original_name.replace(/\.pdf$/i, "") || "Merged_PDF";
     const rawName = pdfName.trim() || fallback;
-    const base = /\.pdf$/i.test(rawName) ? rawName.replace(/\.pdf$/i, "") : rawName;
-    const cleanBase = base.replace(/\s*\((RTI Application|First Appeal|Second Appeal|Complaint)\)$/i, "");
-    
+    const base = /\.pdf$/i.test(rawName)
+      ? rawName.replace(/\.pdf$/i, "")
+      : rawName;
+    const cleanBase = base.replace(
+      /\s*\((RTI Application|First Appeal|Second Appeal)\)$/i,
+      "",
+    );
+
     if (effectiveAppendRTI) {
       return `${cleanBase} (${rtiTypeSelected}).pdf`;
     }
@@ -342,6 +535,7 @@ function Index() {
             pageIndex: entry.pageIndex,
             totalPages: originalPageCounts[entry.originalId] ?? 1,
             rotation: entry.rotation ?? 0,
+            stickers: entry.stickers,
           });
         }
       } else {
@@ -355,6 +549,7 @@ function Index() {
             pageIndex: entry.pageIndex ?? 0,
             totalPages: itemPageCounts[item.id] ?? 1,
             rotation: entry.rotation ?? 0,
+            stickers: entry.stickers,
           });
         }
       }
@@ -362,8 +557,11 @@ function Index() {
     return list;
   }, [timeline, originalsById, itemById, originalPageCounts, itemPageCounts]);
 
-  const isManualProject = isDraftId(activeDoc?.id) || isDraftId(activeDoc?.id ?? null);
-  const activeDraftId = isDraftId(activeDoc?.id ?? null) ? (activeDoc?.id ?? null) : null;
+  const isManualProject =
+    isDraftId(activeDoc?.id) || isDraftId(activeDoc?.id ?? null);
+  const activeDraftId = isDraftId(activeDoc?.id ?? null)
+    ? (activeDoc?.id ?? null)
+    : null;
 
   const cacheCurrentProject = () => {
     if (!activeDoc || isManualProject || loadingDoc) return;
@@ -417,37 +615,44 @@ function Index() {
   };
 
   // Lazy thumbnail resolver — renders and caches a single page on demand.
-  const getOriginalThumb = (originalId: string, pageIndex: number) => async (): Promise<string | null> => {
-    const cached = originalThumbs[originalId]?.[pageIndex];
-    if (cached) return cached;
-    const orig = originalsById.get(originalId);
-    if (!orig) return null;
-    const url = await renderPdfPage(`orig-${originalId}`, orig.file, pageIndex);
-    if (url) {
-      setOriginalThumbs((prev) => {
-        const arr = prev[originalId] ? [...prev[originalId]] : [];
-        arr[pageIndex] = url;
-        return { ...prev, [originalId]: arr };
-      });
-    }
-    return url;
-  };
+  const getOriginalThumb =
+    (originalId: string, pageIndex: number) =>
+    async (): Promise<string | null> => {
+      const cached = originalThumbs[originalId]?.[pageIndex];
+      if (cached) return cached;
+      const orig = originalsById.get(originalId);
+      if (!orig) return null;
+      const url = await renderPdfPage(
+        `orig-${originalId}`,
+        orig.file,
+        pageIndex,
+      );
+      if (url) {
+        setOriginalThumbs((prev) => {
+          const arr = prev[originalId] ? [...prev[originalId]] : [];
+          arr[pageIndex] = url;
+          return { ...prev, [originalId]: arr };
+        });
+      }
+      return url;
+    };
 
-  const getItemThumb = (itemId: string, pageIndex: number) => async (): Promise<string | null> => {
-    const cached = itemThumbs[itemId]?.[pageIndex];
-    if (cached) return cached;
-    const it = itemById.get(itemId);
-    if (!it || it.kind !== "pdf") return null;
-    const url = await renderPdfPage(`item-${itemId}`, it.file, pageIndex);
-    if (url) {
-      setItemThumbs((prev) => {
-        const arr = prev[itemId] ? [...prev[itemId]] : [];
-        arr[pageIndex] = url;
-        return { ...prev, [itemId]: arr };
-      });
-    }
-    return url;
-  };
+  const getItemThumb =
+    (itemId: string, pageIndex: number) => async (): Promise<string | null> => {
+      const cached = itemThumbs[itemId]?.[pageIndex];
+      if (cached) return cached;
+      const it = itemById.get(itemId);
+      if (!it || it.kind !== "pdf") return null;
+      const url = await renderPdfPage(`item-${itemId}`, it.file, pageIndex);
+      if (url) {
+        setItemThumbs((prev) => {
+          const arr = prev[itemId] ? [...prev[itemId]] : [];
+          arr[pageIndex] = url;
+          return { ...prev, [itemId]: arr };
+        });
+      }
+      return url;
+    };
 
   // ---------- Add PDF/image item helper (expands PDF into per-page timeline entries) ----------
   const registerItem = async (
@@ -456,7 +661,7 @@ function Index() {
     opts?: { append?: boolean; replaceEntryId?: string },
   ): Promise<void> => {
     const it: MergeItem = {
-      id: `item-${crypto.randomUUID()}`,
+      id: `item-${safeRandomUUID()}`,
       name: file.name,
       kind,
       file,
@@ -469,14 +674,16 @@ function Index() {
       setItemThumbs((prev) => ({ ...prev, [it.id]: [url] }));
       setItemPageCounts((prev) => ({ ...prev, [it.id]: 1 }));
       const entry: SavedTimelineEntry = {
-        id: `entry-${crypto.randomUUID()}`,
+        id: `entry-${safeRandomUUID()}`,
         type: "item",
         itemId: it.id,
         pageIndex: 0,
       };
       if (opts?.replaceEntryId) {
         setTimeline((prev) =>
-          prev.map((e) => (e.id === opts.replaceEntryId ? { ...entry, id: e.id } : e)),
+          prev.map((e) =>
+            e.id === opts.replaceEntryId ? { ...entry, id: e.id } : e,
+          ),
         );
       } else {
         setTimeline((prev) => [...prev, entry]);
@@ -493,12 +700,15 @@ function Index() {
     }
     setItemPageCounts((prev) => ({ ...prev, [it.id]: pageCount }));
 
-    const newEntries: SavedTimelineEntry[] = Array.from({ length: pageCount }, (_, i) => ({
-      id: `entry-${crypto.randomUUID()}`,
-      type: "item",
-      itemId: it.id,
-      pageIndex: i,
-    }));
+    const newEntries: SavedTimelineEntry[] = Array.from(
+      { length: pageCount },
+      (_, i) => ({
+        id: `entry-${safeRandomUUID()}`,
+        type: "item",
+        itemId: it.id,
+        pageIndex: i,
+      }),
+    );
 
     if (opts?.replaceEntryId) {
       setTimeline((prev) => {
@@ -557,7 +767,11 @@ function Index() {
       const origCounts: Record<string, number> = {};
       for (const row of origRows) {
         try {
-          const f = await downloadFromPath(row.path, row.name, "application/pdf");
+          const f = await downloadFromPath(
+            row.path,
+            row.name,
+            "application/pdf",
+          );
           loadedOriginals.push({ id: row.id, name: row.name, file: f });
           try {
             const cnt = await getPdfPageCount(`orig-${row.id}`, f);
@@ -581,7 +795,12 @@ function Index() {
         for (const savedItem of plan.items) {
           try {
             const f = await loadItemFile(savedItem);
-            restoredItems.push({ id: savedItem.id, name: savedItem.name, kind: savedItem.kind, file: f });
+            restoredItems.push({
+              id: savedItem.id,
+              name: savedItem.name,
+              kind: savedItem.kind,
+              file: f,
+            });
             nextPaths[savedItem.id] = savedItem.path;
             if (savedItem.kind === "image") {
               const url = URL.createObjectURL(f);
@@ -613,7 +832,7 @@ function Index() {
             if (e.pageIndex === undefined && count > 1) {
               for (let i = 0; i < count; i++) {
                 migrated.push({
-                  id: `entry-${crypto.randomUUID()}`,
+                  id: `entry-${safeRandomUUID()}`,
                   type: "item",
                   itemId: e.itemId,
                   pageIndex: i,
@@ -634,7 +853,7 @@ function Index() {
           const count = Math.max(1, origCounts[o.id] ?? 1);
           for (let i = 0; i < count; i++) {
             t.push({
-              id: `orig-${o.id}-${i}-${crypto.randomUUID()}`,
+              id: `orig-${o.id}-${i}-${safeRandomUUID()}`,
               type: "original-page",
               originalId: o.id,
               pageIndex: i,
@@ -653,7 +872,10 @@ function Index() {
 
       setStatus({ kind: "idle" });
     } catch (err) {
-      setStatus({ kind: "error", message: `Failed to load project: ${(err as Error).message}` });
+      setStatus({
+        kind: "error",
+        message: `Failed to load project: ${(err as Error).message}`,
+      });
     } finally {
       setLoadingDoc(false);
     }
@@ -682,7 +904,10 @@ function Index() {
 
   useEffect(() => {
     if (restoredOnMountRef.current) return;
-    const savedId = typeof window !== "undefined" ? localStorage.getItem("active_rti_project_id") : null;
+    const savedId =
+      typeof window !== "undefined"
+        ? localStorage.getItem("active_rti_project_id")
+        : null;
     if (!savedId) {
       restoredOnMountRef.current = true;
       return;
@@ -710,7 +935,11 @@ function Index() {
     })();
   }, [drafts]);
 
-  const buildDraftDoc = (draftId: string, name: string, originalName: string): RtiDocument => ({
+  const buildDraftDoc = (
+    draftId: string,
+    name: string,
+    originalName: string,
+  ): RtiDocument => ({
     id: draftId,
     customer_name: name,
     rti_type: "RTI",
@@ -746,15 +975,15 @@ function Index() {
     setIsCreatingDraft(true);
     try {
       cacheCurrentProject();
-      const sessionUuid = crypto.randomUUID();
+      const sessionUuid = safeRandomUUID();
       manualSessionIdRef.current = sessionUuid;
-      const draftId = `${DRAFT_PREFIX}${crypto.randomUUID()}`;
+      const draftId = `${DRAFT_PREFIX}${safeRandomUUID()}`;
       const nextNum = getNextDraftNumber(drafts);
       const displayName = `Manual Draft ${nextNum}`;
       const initialName = "";
       resetLocalState();
       const draftDoc = buildDraftDoc(draftId, displayName, "manual-edit.pdf");
-      
+
       const now = new Date().toISOString();
       const emptyDraft: ManualDraft = {
         id: draftId,
@@ -769,7 +998,7 @@ function Index() {
         timeline: [],
       };
       await saveDraft(emptyDraft);
-      
+
       setActiveDoc(draftDoc);
       setPdfName(initialName);
       if (typeof window !== "undefined") {
@@ -791,7 +1020,9 @@ function Index() {
     try {
       const pdfs: File[] = [];
       for (const f of files) {
-        const p = await fileToPdf(f, (msg) => setStatus({ kind: "working", pct: 0, label: msg }));
+        const p = await fileToPdf(f, (msg) =>
+          setStatus({ kind: "working", pct: 0, label: msg }),
+        );
         if (p) pdfs.push(p);
       }
       if (!pdfs.length) {
@@ -801,7 +1032,7 @@ function Index() {
       const loadedOriginals: { id: string; name: string; file: File }[] = [];
       const countsMap: Record<string, number> = {};
       for (const file of pdfs) {
-        const id = `manual-${crypto.randomUUID()}`;
+        const id = `manual-${safeRandomUUID()}`;
         loadedOriginals.push({ id, name: file.name, file });
         try {
           const cnt = await getPdfPageCount(`orig-${id}`, file);
@@ -815,7 +1046,7 @@ function Index() {
         const count = Math.max(1, countsMap[o.id] ?? 1);
         for (let i = 0; i < count; i++) {
           timelineEntries.push({
-            id: `manual-orig-${o.id}-${i}-${crypto.randomUUID()}`,
+            id: `manual-orig-${o.id}-${i}-${safeRandomUUID()}`,
             type: "original-page",
             originalId: o.id,
             pageIndex: i,
@@ -829,7 +1060,10 @@ function Index() {
       setPdfName(firstOriginalName);
       setStatus({ kind: "idle" });
     } catch (err) {
-      setStatus({ kind: "error", message: `Failed to import original files: ${(err as Error).message}` });
+      setStatus({
+        kind: "error",
+        message: `Failed to import original files: ${(err as Error).message}`,
+      });
     } finally {
       setLoadingDoc(false);
     }
@@ -856,7 +1090,7 @@ function Index() {
         return;
       }
 
-      const sessionUuid = d.sessionId ?? crypto.randomUUID();
+      const sessionUuid = d.sessionId ?? safeRandomUUID();
       manualSessionIdRef.current = sessionUuid;
       if (!d.sessionId) {
         d.sessionId = sessionUuid;
@@ -894,7 +1128,8 @@ function Index() {
       const nextCounts: Record<string, number> = {};
       for (const it of d.items) {
         const file = new File([it.file.blob], it.file.name, {
-          type: it.file.type || (it.kind === "pdf" ? "application/pdf" : "image/*"),
+          type:
+            it.file.type || (it.kind === "pdf" ? "application/pdf" : "image/*"),
         });
         restoredItems.push({ id: it.id, name: it.name, kind: it.kind, file });
         if (it.kind === "image") {
@@ -916,11 +1151,16 @@ function Index() {
       setTimeline(d.timeline);
       setStatus({ kind: "idle" });
     } catch (err) {
-      setStatus({ kind: "error", message: `Failed to load draft: ${(err as Error).message}` });
+      setStatus({
+        kind: "error",
+        message: `Failed to load draft: ${(err as Error).message}`,
+      });
     } finally {
       setLoadingDoc(false);
       // small delay to skip the initial auto-save triggered by state hydration
-      setTimeout(() => { draftLoadingRef.current = false; }, 250);
+      setTimeout(() => {
+        draftLoadingRef.current = false;
+      }, 250);
     }
   };
 
@@ -951,17 +1191,24 @@ function Index() {
     }
   };
 
-
-  // Poll mobile uploads for the active DB project.
+  // Poll mobile uploads for active project (both Admin and Manual Edit sessions)
   useEffect(() => {
-    if (!activeDoc || isManualProject) return;
+    if (!activeDoc) return;
+    const effectiveId = isManualProject
+      ? manualSessionIdRef.current
+      : activeDoc.id;
     let cancelled = false;
+
     const tick = async () => {
       try {
-        const list = await listMobileUploads(activeDoc.id);
-        const fresh = list.filter((m) => !seenMobilePathsRef.current.has(m.path));
+        const list = await listMobileUploads(effectiveId);
+        const fresh = list.filter(
+          (m) => !seenMobilePathsRef.current.has(m.path),
+        );
         if (!fresh.length || cancelled) return;
+
         for (const m of fresh) seenMobilePathsRef.current.add(m.path);
+
         for (const m of fresh) {
           const lower = m.name.toLowerCase();
           const isDoc = lower.endsWith(".doc") || lower.endsWith(".docx");
@@ -969,107 +1216,58 @@ function Index() {
           const mime = isPdf
             ? "application/pdf"
             : isDoc
-              ? (lower.endsWith(".docx")
-                  ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                  : "application/msword")
+              ? lower.endsWith(".docx")
+                ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                : "application/msword"
               : lower.endsWith(".png")
                 ? "image/png"
                 : "image/jpeg";
+
           const raw = await downloadFromPath(m.path, m.name, mime);
           let file: File = raw;
           let kind: "pdf" | "image" = isPdf || isDoc ? "pdf" : "image";
-          if (isDoc) {
-            const conv = await fileToPdf(raw);
-            if (!conv) continue;
-            file = conv;
-            kind = "pdf";
-          }
-          if (cancelled) return;
-          await registerItem(file, kind);
-        }
-      } catch {
-        /* ignore */
-      }
-    };
-    const channel = supabase
-      .channel(`rti_mobile_tokens_${activeDoc.id}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "rti_mobile_tokens", filter: `document_id=eq.${activeDoc.id}` },
-        () => { void tick(); },
-      )
-      .subscribe();
-    const iv = window.setInterval(tick, 4000);
-    return () => {
-      cancelled = true;
-      supabase.removeChannel(channel);
-      window.clearInterval(iv);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeDoc?.id]);
 
-  // Poll mobile uploads for Manual Edit session (uses manualSessionIdRef).
-  useEffect(() => {
-    if (!isManualProject) return;
-    const sessionId = manualSessionIdRef.current;
-    let cancelled = false;
-    const tick = async () => {
-      try {
-        const { data } = await supabase.storage
-          .from("rti-files")
-          .list(`${sessionId}/items`, { limit: 1000, sortBy: { column: "created_at", order: "asc" } });
-        if (!data || cancelled) return;
-        const fresh = data.filter(
-          (f) => f.name.includes("-mobile-") && !seenMobilePathsRef.current.has(`${sessionId}/items/${f.name}`),
-        );
-        for (const f of fresh) {
-          const path = `${sessionId}/items/${f.name}`;
-          seenMobilePathsRef.current.add(path);
-          const lower = f.name.toLowerCase();
-          const isDoc = lower.endsWith(".doc") || lower.endsWith(".docx");
-          const isPdf = lower.endsWith(".pdf");
-          const mime = isPdf
-            ? "application/pdf"
-            : isDoc
-              ? (lower.endsWith(".docx")
-                  ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                  : "application/msword")
-              : lower.endsWith(".png")
-                ? "image/png"
-                : "image/jpeg";
-          const cleanName = f.name.replace(/^\d+-[a-f0-9-]+-mobile-/, "");
-          const raw = await downloadFromPath(path, cleanName, mime);
-          let file: File = raw;
-          let kind: "pdf" | "image" = isPdf || isDoc ? "pdf" : "image";
           if (isDoc) {
             const conv = await fileToPdf(raw);
             if (!conv) continue;
             file = conv;
             kind = "pdf";
           }
+
           if (cancelled) return;
           await registerItem(file, kind);
         }
-      } catch {
-        /* ignore */
+      } catch (err) {
+        console.warn("Mobile upload polling notice:", err);
       }
     };
+
+    void tick();
+    const iv = window.setInterval(tick, 3000);
+
     const channel = supabase
-      .channel(`manual_mobile_${sessionId}`)
+      .channel(`mobile_poll_${effectiveId}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "rti_mobile_tokens", filter: `document_id=eq.${sessionId}` },
-        () => { void tick(); },
+        {
+          event: "*",
+          schema: "public",
+          table: "rti_mobile_tokens",
+          filter: `document_id=eq.${effectiveId}`,
+        },
+        () => {
+          void tick();
+        },
       )
       .subscribe();
-    const iv = window.setInterval(tick, 4000);
+
     return () => {
       cancelled = true;
       supabase.removeChannel(channel);
       window.clearInterval(iv);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isManualProject, activeDoc?.id]);
+  }, [activeDoc?.id, isManualProject]);
 
   // Live-update status via realtime
   useEffect(() => {
@@ -1078,7 +1276,12 @@ function Index() {
       .channel(`rti_doc_${activeDoc.id}`)
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "rti_documents", filter: `id=eq.${activeDoc.id}` },
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "rti_documents",
+          filter: `id=eq.${activeDoc.id}`,
+        },
         (payload) => setActiveDoc(payload.new as RtiDocument),
       )
       .subscribe();
@@ -1090,7 +1293,19 @@ function Index() {
   useEffect(() => {
     cacheCurrentProject();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeDoc, originals, originalThumbs, originalPageCounts, items, itemPaths, itemThumbs, itemPageCounts, timeline, pdfName, loadingDoc]);
+  }, [
+    activeDoc,
+    originals,
+    originalThumbs,
+    originalPageCounts,
+    items,
+    itemPaths,
+    itemThumbs,
+    itemPageCounts,
+    timeline,
+    pdfName,
+    loadingDoc,
+  ]);
 
   // ---- Auto-persist plan for real projects (debounced) ----
   const persistPlan = async () => {
@@ -1100,14 +1315,23 @@ function Index() {
       let changed = false;
       for (const it of items) {
         if (!nextPaths[it.id]) {
-          nextPaths[it.id] = await uploadItemFile(activeDoc.id, it.file, it.kind);
+          nextPaths[it.id] = await uploadItemFile(
+            activeDoc.id,
+            it.file,
+            it.kind,
+          );
           changed = true;
         }
       }
       if (changed) setItemPaths(nextPaths);
       const savedItems: SavedPlanItem[] = items
         .filter((it) => !!nextPaths[it.id])
-        .map((it) => ({ id: it.id, name: it.name, kind: it.kind, path: nextPaths[it.id] }));
+        .map((it) => ({
+          id: it.id,
+          name: it.name,
+          kind: it.kind,
+          path: nextPaths[it.id],
+        }));
       const savedPlan: SavedPlan = { items: savedItems, timeline };
       await updateDocument(activeDoc.id, { plan_json: savedPlan });
     } catch (e) {
@@ -1130,14 +1354,23 @@ function Index() {
   // ---- Auto-save manual draft to IndexedDB (debounced) ----
   useEffect(() => {
     if (!activeDraftId || draftLoadingRef.current || loadingDoc) return;
-    if (draftSaveTimerRef.current) window.clearTimeout(draftSaveTimerRef.current);
+    if (draftSaveTimerRef.current)
+      window.clearTimeout(draftSaveTimerRef.current);
     draftSaveTimerRef.current = window.setTimeout(async () => {
       try {
-        const firstDocName = originals[0]?.name?.replace(/\.pdf$/i, "") ?? items[0]?.name?.replace(/\.[^/.]+$/, "");
-        const syncedName = pdfName.trim() || firstDocName || activeDoc?.customer_name || "Manual Draft";
+        const firstDocName =
+          originals[0]?.name?.replace(/\.pdf$/i, "") ??
+          items[0]?.name?.replace(/\.[^/.]+$/, "");
+        const syncedName =
+          pdfName.trim() ||
+          firstDocName ||
+          activeDoc?.customer_name ||
+          "Manual Draft";
 
         if (activeDoc && activeDoc.customer_name !== syncedName) {
-          setActiveDoc((prev) => (prev ? { ...prev, customer_name: syncedName } : null));
+          setActiveDoc((prev) =>
+            prev ? { ...prev, customer_name: syncedName } : null,
+          );
         }
 
         const draft: ManualDraft = {
@@ -1169,10 +1402,20 @@ function Index() {
       }
     }, 400);
     return () => {
-      if (draftSaveTimerRef.current) window.clearTimeout(draftSaveTimerRef.current);
+      if (draftSaveTimerRef.current)
+        window.clearTimeout(draftSaveTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, originals, timeline, activeDraftId, loadingDoc, activeDoc?.id, pdfName, rtiTypeSelected]);
+  }, [
+    items,
+    originals,
+    timeline,
+    activeDraftId,
+    loadingDoc,
+    activeDoc?.id,
+    pdfName,
+    rtiTypeSelected,
+  ]);
 
   /** Insert a pasted image after the last "original-page" entry (ACK position). */
   const insertPastedImageEntry = (itemId: string) => {
@@ -1223,7 +1466,9 @@ function Index() {
       }
       if (kind === "pdf" || kind === "word") {
         try {
-          const optimized = await fileToPdf(f, (msg) => setStatus({ kind: "working", pct: 0, label: msg }));
+          const optimized = await fileToPdf(f, (msg) =>
+            setStatus({ kind: "working", pct: 0, label: msg }),
+          );
           if (optimized) {
             await registerItem(optimized, "pdf");
           } else {
@@ -1250,7 +1495,13 @@ function Index() {
     if (!activeDoc) return;
     const onPaste = async (e: ClipboardEvent) => {
       const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      )
+        return;
       const items = e.clipboardData?.items;
       if (!items) return;
       const imageFiles: File[] = [];
@@ -1268,7 +1519,9 @@ function Index() {
       for (const img of imageFiles) await attachPastedImage(img);
       if (otherFiles.length) await addFiles(otherFiles);
     };
-    const onDragOver = (e: DragEvent) => { e.preventDefault(); };
+    const onDragOver = (e: DragEvent) => {
+      e.preventDefault();
+    };
     const onDrop = async (e: DragEvent) => {
       if (!e.dataTransfer?.files?.length) return;
       const target = e.target as HTMLElement | null;
@@ -1298,7 +1551,11 @@ function Index() {
 
   const rotateEntry = useCallback((entryId: string) => {
     setTimeline((prev) =>
-      prev.map((e) => (e.id === entryId ? { ...e, rotation: ((e.rotation ?? 0) + 90) % 360 } : e)),
+      prev.map((e) =>
+        e.id === entryId
+          ? { ...e, rotation: ((e.rotation ?? 0) + 90) % 360 }
+          : e,
+      ),
     );
   }, []);
 
@@ -1321,7 +1578,9 @@ function Index() {
     }
     if (kind === "pdf" || kind === "word") {
       try {
-        const p = await fileToPdf(f, (msg) => setStatus({ kind: "working", pct: 0, label: msg }));
+        const p = await fileToPdf(f, (msg) =>
+          setStatus({ kind: "working", pct: 0, label: msg }),
+        );
         if (p) {
           f = p;
           kind = "pdf";
@@ -1369,6 +1628,7 @@ function Index() {
               originalId: entry.originalId,
               pageIndex: entry.pageIndex,
               rotation: entry.rotation,
+              stickers: entry.stickers,
             };
           }
           const item = itemById.get(entry.itemId);
@@ -1379,6 +1639,7 @@ function Index() {
             item,
             pageIndex: entry.pageIndex ?? 0,
             rotation: entry.rotation,
+            stickers: entry.stickers,
           };
         })
         .filter((x): x is PlanEntry => x !== null);
@@ -1413,7 +1674,11 @@ function Index() {
       const nextPaths = { ...itemPaths };
       for (const it of items) {
         if (!nextPaths[it.id]) {
-          nextPaths[it.id] = await uploadItemFile(activeDoc.id, it.file, it.kind);
+          nextPaths[it.id] = await uploadItemFile(
+            activeDoc.id,
+            it.file,
+            it.kind,
+          );
         }
       }
       setItemPaths(nextPaths);
@@ -1431,7 +1696,9 @@ function Index() {
         edited_path: editedPath,
         final_name: filename,
         status: "completed",
-        deletion_scheduled_at: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
+        deletion_scheduled_at: new Date(
+          Date.now() + 24 * 60 * 60_000,
+        ).toISOString(),
       };
       const updated = await updateDocument(activeDoc.id, patch);
       setActiveDoc(updated);
@@ -1449,7 +1716,10 @@ function Index() {
         seenMobilePaths: Array.from(seenMobilePathsRef.current),
         rtiTypeSelected,
       };
-      setStatus({ kind: "done", message: `Saved. Status: ${STATUS_TEXT.completed}` });
+      setStatus({
+        kind: "done",
+        message: `Saved. Status: ${STATUS_TEXT.completed}`,
+      });
     } catch (err) {
       setStatus({ kind: "error", message: (err as Error).message });
     }
@@ -1457,13 +1727,16 @@ function Index() {
 
   const cancelAutoDelete = async () => {
     if (!activeDoc) return;
-    const updated = await updateDocument(activeDoc.id, { deletion_scheduled_at: null });
+    const updated = await updateDocument(activeDoc.id, {
+      deletion_scheduled_at: null,
+    });
     setActiveDoc(updated);
   };
 
   const deleteNow = async () => {
     if (!activeDoc) return;
-    if (!confirm("Delete project data now? Saved PDFs on disk are kept.")) return;
+    if (!confirm("Delete project data now? Saved PDFs on disk are kept."))
+      return;
     await deleteDocumentData(activeDoc.id);
     delete projectCacheRef.current[activeDoc.id];
     setActiveDoc(null);
@@ -1494,8 +1767,11 @@ function Index() {
     })();
   };
 
-
-  const canGenerate = timeline.length > 0 && status.kind !== "working" && !loadingDoc && !!activeDoc;
+  const canGenerate =
+    timeline.length > 0 &&
+    status.kind !== "working" &&
+    !loadingDoc &&
+    !!activeDoc;
 
   // Parse "1,2,3", "5-8", "1,3,5-7" → 0-based timeline indices (unique, ordered).
   const parsePageRange = (input: string, total: number): number[] | null => {
@@ -1511,12 +1787,18 @@ function Index() {
         const lo = Math.max(1, Math.min(a, b));
         const hi = Math.min(total, Math.max(a, b));
         for (let i = lo; i <= hi; i++) {
-          if (!seen.has(i)) { seen.add(i); out.push(i - 1); }
+          if (!seen.has(i)) {
+            seen.add(i);
+            out.push(i - 1);
+          }
         }
       } else {
         const n = parseInt(p, 10);
         if (!Number.isFinite(n)) return null;
-        if (n >= 1 && n <= total && !seen.has(n)) { seen.add(n); out.push(n - 1); }
+        if (n >= 1 && n <= total && !seen.has(n)) {
+          seen.add(n);
+          out.push(n - 1);
+        }
       }
     }
     return out;
@@ -1526,7 +1808,10 @@ function Index() {
     if (!activeDoc) return;
     const indices = parsePageRange(pageRange, timeline.length);
     if (!indices || indices.length === 0) {
-      setStatus({ kind: "error", message: "Enter a valid page range (e.g. 1,3,5-7)" });
+      setStatus({
+        kind: "error",
+        message: "Enter a valid page range (e.g. 1,3,5-7)",
+      });
       return;
     }
     setStatus({ kind: "working", pct: 0, label: "Preparing pages…" });
@@ -1568,7 +1853,11 @@ function Index() {
     }
   };
 
-  const canDownload = timeline.length > 0 && status.kind !== "working" && !loadingDoc && !!activeDoc;
+  const canDownload =
+    timeline.length > 0 &&
+    status.kind !== "working" &&
+    !loadingDoc &&
+    !!activeDoc;
 
   // Evict cached pdfjs documents on unmount.
   useEffect(() => {
@@ -1584,7 +1873,12 @@ function Index() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
         return;
       }
 
@@ -1622,7 +1916,9 @@ function Index() {
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       {/* Queue & Drafts Sidebar: 100% width on mobile when in 'queue' mode, side-by-side on md+ */}
-      <div className={`w-full md:w-72 shrink-0 ${mobileView === "queue" ? "flex h-screen" : "hidden md:flex md:h-screen"}`}>
+      <div
+        className={`w-full md:w-72 shrink-0 ${mobileView === "queue" ? "flex h-screen" : "hidden md:flex md:h-screen"}`}
+      >
         <RtiSidebar
           activeId={activeDoc?.id ?? null}
           onSelect={(doc) => {
@@ -1674,7 +1970,9 @@ function Index() {
       />
 
       {/* Project Workspace Container: 100% width on mobile when in 'workspace' mode, flex-1 on md+ */}
-      <div className={`min-w-0 flex-1 overflow-y-auto ${mobileView === "workspace" ? "block h-screen" : "hidden md:block md:h-screen"}`}>
+      <div
+        className={`min-w-0 flex-1 overflow-y-auto ${mobileView === "workspace" ? "block h-screen" : "hidden md:block md:h-screen"}`}
+      >
         {/* Mobile Sticky Navigation Header with Back Button */}
         <div className="md:hidden sticky top-0 z-20 flex items-center justify-between border-b border-border bg-white px-4 py-2.5 shadow-sm">
           <button
@@ -1698,9 +1996,12 @@ function Index() {
               <FileText className="h-5 w-5" />
             </div>
             <div className="flex-1 min-w-0">
-              <h1 className="text-base sm:text-lg font-semibold text-foreground truncate">FileMyRTI PDF Manager</h1>
+              <h1 className="text-base sm:text-lg font-semibold text-foreground truncate">
+                FileMyRTI PDF Manager
+              </h1>
               <p className="text-xs text-muted-foreground truncate">
-                Merge PDFs &amp; images · Convert Word documents · Optimize RTI filings
+                Merge PDFs &amp; images · Convert Word documents · Optimize RTI
+                filings
               </p>
             </div>
           </div>
@@ -1709,9 +2010,12 @@ function Index() {
         <main className="mx-auto max-w-5xl px-6 py-8">
           {!activeDoc ? (
             <div className="rounded-xl border border-dashed border-border bg-white p-8 text-center animate-in fade-in slide-in-from-bottom-2 duration-300">
-              <p className="text-sm font-medium text-foreground">No project open</p>
+              <p className="text-sm font-medium text-foreground">
+                No project open
+              </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Pick a project from the queue on the left, use <b>Admin Upload</b>, or click below to start a manual draft.
+                Pick a project from the queue on the left, use{" "}
+                <b>Admin Upload</b>, or click below to start a manual draft.
               </p>
               <div className="mt-5 flex justify-center">
                 <button
@@ -1727,47 +2031,61 @@ function Index() {
             <>
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-200/80 bg-blue-50/60 px-4 py-3 shadow-sm">
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-slate-800 truncate">{activeDoc.customer_name}</p>
+                  <p className="text-sm font-bold text-slate-800 truncate">
+                    {activeDoc.customer_name}
+                  </p>
                   <p className="text-xs font-medium text-slate-500 mt-0.5">
                     {timeline.length} Page{timeline.length === 1 ? "" : "s"}
                   </p>
                 </div>
                 {!isManualProject && (
-                  <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold shadow-sm border ${
-                    activeDoc.status === "completed"
-                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                      : "bg-amber-50 text-amber-700 border-amber-200"
-                  }`}>
-                    <span className={`h-1.5 w-1.5 rounded-full ${activeDoc.status === "completed" ? "bg-emerald-500" : "bg-amber-500"}`} />
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold shadow-sm border ${
+                      activeDoc.status === "completed"
+                        ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                        : "bg-amber-50 text-amber-700 border-amber-200"
+                    }`}
+                  >
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${activeDoc.status === "completed" ? "bg-emerald-500" : "bg-amber-500"}`}
+                    />
                     {STATUS_TEXT[activeDoc.status]}
                   </span>
                 )}
               </div>
 
-              {!isManualProject && activeDoc.status === "completed" && activeDoc.deletion_scheduled_at && (
-                <AutoDeleteBanner
-                  scheduledAt={activeDoc.deletion_scheduled_at}
-                  onCancel={cancelAutoDelete}
-                  onDeleteNow={deleteNow}
-                />
-              )}
+              {!isManualProject &&
+                activeDoc.status === "completed" &&
+                activeDoc.deletion_scheduled_at && (
+                  <AutoDeleteBanner
+                    scheduledAt={activeDoc.deletion_scheduled_at}
+                    onCancel={cancelAutoDelete}
+                    onDeleteNow={deleteNow}
+                  />
+                )}
 
               {/* 2. Phone Upload */}
-              {(!isManualProject || originals.length > 0) && (
-                <div className="mb-5">
-                  <QrPhonePanel
-                    docId={activeDoc.id}
-                    sessionId={isManualProject ? manualSessionIdRef.current : undefined}
-                  />
-                </div>
-              )}
+              <div className="mb-5">
+                <QrPhonePanel
+                  docId={activeDoc.id}
+                  sessionId={
+                    isManualProject ? manualSessionIdRef.current : undefined
+                  }
+                />
+              </div>
 
               {/* 3. Add More Files / Original PDF */}
-              {isManualProject && originals.length === 0 ? (
+              {isManualProject &&
+              originals.length === 0 &&
+              items.length === 0 &&
+              timeline.length === 0 ? (
                 <section className="mb-5 rounded-xl border border-border bg-white p-5 shadow-sm">
-                  <h2 className="mb-1 text-sm font-bold text-slate-800">Original Document / PDF</h2>
+                  <h2 className="mb-1 text-sm font-bold text-slate-800">
+                    Original Document / PDF
+                  </h2>
                   <p className="mb-3 text-xs text-muted-foreground">
-                    Drop one or more PDFs, Word documents (.doc/.docx), or images to start editing.
+                    Drop one or more PDFs, Word documents (.doc/.docx), or
+                    images to start editing.
                   </p>
                   <Dropzone
                     label="Drop original files here"
@@ -1780,9 +2098,12 @@ function Index() {
               ) : (
                 <>
                   <section className="mb-5 rounded-xl border border-border bg-white p-5 shadow-sm">
-                    <h2 className="mb-1 text-sm font-bold text-slate-800">Add More Files</h2>
+                    <h2 className="mb-1 text-sm font-bold text-slate-800">
+                      Add More Files
+                    </h2>
                     <p className="mb-3 text-xs text-muted-foreground">
-                      Add PDFs, Word documents, or Images. Drag thumbnails below in the Page Editor to reorder or interleave pages.
+                      Add PDFs, Word documents, or Images. Drag thumbnails below
+                      in the Page Editor to reorder or interleave pages.
                     </p>
                     <Dropzone
                       label="Drop files here or click to browse"
@@ -1795,14 +2116,40 @@ function Index() {
 
                   {/* 4. Page Editor (Primary Workspace) */}
                   <section className="rounded-xl border border-border bg-white p-5 shadow-sm">
-                    <div className="mb-3 flex items-center justify-between gap-3">
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
                       <div>
                         <h2 className="text-sm font-bold text-slate-800">
-                          Page Editor ({timeline.length} page{timeline.length === 1 ? "" : "s"})
+                          Page Editor ({timeline.length} page
+                          {timeline.length === 1 ? "" : "s"})
                         </h2>
                         <p className="text-xs text-muted-foreground">
-                          Drag to reorder · Click 👁 or double-click to view full-screen · Hover for rotate, replace, delete.
+                          Drag to reorder · Click 👁 or double-click to view
+                          full-screen · Hover for rotate, replace, delete.
                         </p>
+                      </div>
+
+                      {/* 📑 Court Stamp Action Button */}
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleCourtStampClick}
+                          disabled={timeline.length === 0}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-bold text-blue-700 shadow-sm hover:bg-blue-100 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
+                          title="Insert Court Stamp onto selected page"
+                        >
+                          <Stamp className="h-4 w-4 text-blue-600" /> 📑 Court
+                          Stamp
+                        </button>
+                        {courtStampTemplate && (
+                          <button
+                            type="button"
+                            onClick={() => setIsCourtStampSettingsOpen(true)}
+                            className="rounded-lg border border-slate-200 bg-white p-2 text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer"
+                            title="Court Stamp Settings"
+                          >
+                            <Settings className="h-4 w-4 text-slate-600" />
+                          </button>
+                        )}
                       </div>
                     </div>
 
@@ -1816,32 +2163,61 @@ function Index() {
                         collisionDetection={closestCenter}
                         onDragEnd={onTimelineDragEnd}
                       >
-                        <SortableContext items={timeline.map((e) => e.id)} strategy={rectSortingStrategy}>
+                        <SortableContext
+                          items={timeline.map((e) => e.id)}
+                          strategy={rectSortingStrategy}
+                        >
                           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
                             {timeline.map((entry, idx) => {
+                              const isPageSelected =
+                                (selectedPageEntryId ?? timeline[0]?.id) ===
+                                entry.id;
                               if (entry.type === "original-page") {
-                                const orig = originalsById.get(entry.originalId);
-                                const thumbs = originalThumbs[entry.originalId] ?? [];
-                                const totalOrigPages = originalPageCounts[entry.originalId] ?? 0;
+                                const orig = originalsById.get(
+                                  entry.originalId,
+                                );
+                                const thumbs =
+                                  originalThumbs[entry.originalId] ?? [];
+                                const totalOrigPages =
+                                  originalPageCounts[entry.originalId] ?? 0;
                                 const sub =
                                   totalOrigPages > 0
                                     ? `Page ${entry.pageIndex + 1} of ${totalOrigPages}`
                                     : `Page ${entry.pageIndex + 1}`;
                                 return (
-                                  <div key={entry.id} className="relative">
+                                  <div
+                                    key={entry.id}
+                                    className="relative"
+                                    onClick={() =>
+                                      setSelectedPageEntryId(entry.id)
+                                    }
+                                  >
                                     <PageThumb
                                       id={entry.id}
                                       label={orig?.name ?? "Original"}
                                       sublabel={sub}
-                                      thumbnail={thumbs[entry.pageIndex] ?? null}
-                                      getThumbnail={getOriginalThumb(entry.originalId, entry.pageIndex)}
+                                      thumbnail={
+                                        thumbs[entry.pageIndex] ?? null
+                                      }
+                                      getThumbnail={getOriginalThumb(
+                                        entry.originalId,
+                                        entry.pageIndex,
+                                      )}
                                       rotation={entry.rotation}
-                                      isSelected={viewerIndex === idx}
+                                      isSelected={
+                                        isPageSelected || viewerIndex === idx
+                                      }
+                                      stickers={entry.stickers}
                                       kind="original"
                                       onDelete={removeEntry}
                                       onRotate={rotateEntry}
                                       onReplace={startReplace}
                                       onExpand={() => setViewerIndex(idx)}
+                                      onUpdateStickers={
+                                        handleUpdatePageStickers
+                                      }
+                                      onUpdateSticker={handleUpdatePageSticker}
+                                      onRemoveSticker={handleRemovePageSticker}
                                     />
                                   </div>
                                 );
@@ -1857,22 +2233,36 @@ function Index() {
                                   ? `Page ${page + 1} of ${totalPages}`
                                   : `Page ${idx + 1}`;
                               return (
-                                <div key={entry.id} className="relative">
+                                <div
+                                  key={entry.id}
+                                  className="relative"
+                                  onClick={() =>
+                                    setSelectedPageEntryId(entry.id)
+                                  }
+                                >
                                   <PageThumb
                                     id={entry.id}
                                     label={item.name}
                                     sublabel={sub}
                                     thumbnail={thumb}
                                     getThumbnail={
-                                      item.kind === "pdf" ? getItemThumb(item.id, page) : undefined
+                                      item.kind === "pdf"
+                                        ? getItemThumb(item.id, page)
+                                        : undefined
                                     }
                                     rotation={entry.rotation}
-                                    isSelected={viewerIndex === idx}
+                                    isSelected={
+                                      isPageSelected || viewerIndex === idx
+                                    }
+                                    stickers={entry.stickers}
                                     kind={item.kind}
                                     onDelete={removeEntry}
                                     onRotate={rotateEntry}
                                     onReplace={startReplace}
                                     onExpand={() => setViewerIndex(idx)}
+                                    onUpdateStickers={handleUpdatePageStickers}
+                                    onUpdateSticker={handleUpdatePageSticker}
+                                    onRemoveSticker={handleRemovePageSticker}
                                   />
                                 </div>
                               );
@@ -1888,11 +2278,12 @@ function Index() {
               {/* 5. Download & Output Settings */}
               <section className="mt-6 rounded-xl border border-border bg-white p-5 shadow-sm">
                 <h3 className="text-sm font-bold text-slate-800 tracking-tight mb-4 flex items-center gap-2">
-                  <Download className="h-4 w-4 text-blue-600" /> Download & Output Settings
+                  <Download className="h-4 w-4 text-blue-600" /> Download &
+                  Output Settings
                 </h3>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                  {/* PDF Name Input (First) */}
+                <div className="space-y-4 mb-4">
+                  {/* PDF Name Input */}
                   <div>
                     <label className="mb-1 block text-xs font-bold text-slate-700">
                       PDF Name
@@ -1904,13 +2295,23 @@ function Index() {
                         const val = e.target.value;
                         setPdfName(val);
                         if (isManualProject && activeDoc) {
-                          const syncName = val.trim() || (originals[0]?.name?.replace(/\.pdf$/i, "") ?? items[0]?.name?.replace(/\.[^/.]+$/, ""));
+                          const syncName =
+                            val.trim() ||
+                            (originals[0]?.name?.replace(/\.pdf$/i, "") ??
+                              items[0]?.name?.replace(/\.[^/.]+$/, ""));
                           if (syncName) {
-                            setActiveDoc((prev) => (prev ? { ...prev, customer_name: syncName } : null));
+                            setActiveDoc((prev) =>
+                              prev
+                                ? { ...prev, customer_name: syncName }
+                                : null,
+                            );
                           }
                         }
                       }}
-                      placeholder={activeDoc.original_name.replace(/\.pdf$/i, "")}
+                      placeholder={activeDoc.original_name.replace(
+                        /\.pdf$/i,
+                        "",
+                      )}
                       className="w-full rounded-lg border border-input bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
                     />
                     <p className="mt-1 text-[10px] text-muted-foreground">
@@ -1918,57 +2319,51 @@ function Index() {
                     </p>
                   </div>
 
-                  {/* RTI Type Radio Selector */}
+                  {/* RTI Type Radio Pill Selector for ALL_RTI_TYPES */}
                   <div>
                     <label className="mb-2 block text-xs font-bold text-slate-700">
                       RTI Type
                     </label>
-                    <div className="flex items-center gap-6 pt-1">
-                      <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-800 hover:text-blue-600 transition-colors">
-                        <input
-                          type="radio"
-                          name="rtiType"
-                          value="RTI Application"
-                          checked={rtiTypeSelected === "RTI Application"}
-                          onChange={async () => {
-                            const nextType = "RTI Application";
-                            setRtiTypeSelected(nextType);
-                            if (!isManualProject && activeDoc) {
-                              try {
-                                const updated = await updateDocument(activeDoc.id, { rti_type_selected: nextType });
-                                setActiveDoc(updated);
-                              } catch (err) {
-                                console.error("Failed to update RTI type on database", err);
-                              }
-                            }
-                          }}
-                          className="h-4 w-4 border-slate-300 text-blue-600 focus:ring-blue-500 accent-blue-600 cursor-pointer"
-                        />
-                        <span>RTI Application</span>
-                      </label>
-
-                      <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-800 hover:text-blue-600 transition-colors">
-                        <input
-                          type="radio"
-                          name="rtiType"
-                          value="First Appeal"
-                          checked={rtiTypeSelected === "First Appeal"}
-                          onChange={async () => {
-                            const nextType = "First Appeal";
-                            setRtiTypeSelected(nextType);
-                            if (!isManualProject && activeDoc) {
-                              try {
-                                const updated = await updateDocument(activeDoc.id, { rti_type_selected: nextType });
-                                setActiveDoc(updated);
-                              } catch (err) {
-                                console.error("Failed to update RTI type on database", err);
-                              }
-                            }
-                          }}
-                          className="h-4 w-4 border-slate-300 text-blue-600 focus:ring-blue-500 accent-blue-600 cursor-pointer"
-                        />
-                        <span>First Appeal</span>
-                      </label>
+                    <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                      {ALL_RTI_TYPES.map((type) => {
+                        const isChecked = rtiTypeSelected === type;
+                        return (
+                          <label
+                            key={type}
+                            className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all select-none ${
+                              isChecked
+                                ? "border-blue-600 bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-500"
+                                : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="rtiType"
+                              value={type}
+                              checked={isChecked}
+                              onChange={async () => {
+                                setRtiTypeSelected(type);
+                                if (!isManualProject && activeDoc) {
+                                  try {
+                                    const updated = await updateDocument(
+                                      activeDoc.id,
+                                      { rti_type_selected: type },
+                                    );
+                                    setActiveDoc(updated);
+                                  } catch (err) {
+                                    console.error(
+                                      "Failed to update RTI type on database",
+                                      err,
+                                    );
+                                  }
+                                }
+                              }}
+                              className="h-3.5 w-3.5 border-slate-300 text-blue-600 focus:ring-blue-500 accent-blue-600 cursor-pointer"
+                            />
+                            <span>{type}</span>
+                          </label>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
@@ -2003,7 +2398,9 @@ function Index() {
                       <span>Include RTI Type in filename</span>
                     </label>
                     <span className="text-[10px] text-muted-foreground">
-                      {isFullDownload ? "(Default ON for full project)" : "(Default OFF for partial downloads)"}
+                      {isFullDownload
+                        ? "(Default ON for full project)"
+                        : "(Default OFF for partial downloads)"}
                     </span>
                   </div>
                 </div>
@@ -2015,7 +2412,11 @@ function Index() {
                     onClick={() => setAdvancedOpen(!advancedOpen)}
                     className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-700 transition-colors"
                   >
-                    {advancedOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                    {advancedOpen ? (
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    )}
                     Advanced Options (Page Range)
                   </button>
                   {advancedOpen && (
@@ -2031,7 +2432,8 @@ function Index() {
                         className="w-full max-w-md rounded-lg border border-input bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                       />
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Allows selecting a subset of pages. Leave blank to process the whole document.
+                        Allows selecting a subset of pages. Leave blank to
+                        process the whole document.
                       </p>
                     </div>
                   )}
@@ -2048,7 +2450,8 @@ function Index() {
                     {status.kind === "working" ? (
                       <>
                         <Sparkles className="h-4 w-4 animate-pulse" />
-                        {status.label ?? "Working…"} {status.pct ? `${status.pct}%` : ""}
+                        {status.label ?? "Working…"}{" "}
+                        {status.pct ? `${status.pct}%` : ""}
                       </>
                     ) : (
                       <>
@@ -2070,14 +2473,18 @@ function Index() {
 
                 {status.kind === "working" && (
                   <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-blue-100">
-                    <div className="h-full bg-blue-600 transition-all" style={{ width: `${status.pct}%` }} />
+                    <div
+                      className="h-full bg-blue-600 transition-all"
+                      style={{ width: `${status.pct}%` }}
+                    />
                   </div>
                 )}
                 {status.kind === "done" && (
                   <div className="mt-4 flex items-center gap-2.5 rounded-xl bg-emerald-50/80 border border-emerald-200/50 px-4 py-3 text-sm text-emerald-800 shadow-sm">
                     <CheckCircle2 className="h-4.5 w-4.5 text-emerald-600 shrink-0" />
                     <div>
-                      <span className="font-bold">Success:</span> {status.message}
+                      <span className="font-bold">Success:</span>{" "}
+                      {status.message}
                     </div>
                   </div>
                 )}
@@ -2092,12 +2499,42 @@ function Index() {
               </section>
 
               <p className="mt-6 text-center text-xs text-muted-foreground">
-                Merging runs in your browser · Projects & edits stored in internal queue
+                Merging runs in your browser · Projects & edits stored in
+                internal queue
               </p>
             </>
           )}
         </main>
       </div>
+
+      {/* 👁️ Full-Screen Document Viewer & Interactive Page Editor */}
+      <DocumentViewer
+        isOpen={viewerIndex !== null}
+        onClose={() => setViewerIndex(null)}
+        items={viewableTimelineItems}
+        initialIndex={viewerIndex ?? 0}
+        onRotateItem={(entryId) => rotateEntry(entryId)}
+        onUpdateStickers={handleUpdatePageStickers}
+        onAddCourtStamp={(entryId) => {
+          setSelectedPageEntryId(entryId);
+          void handleCourtStampClick();
+        }}
+      />
+
+      {/* 📑 Court Stamp First-Time Setup Modal */}
+      <CourtStampSetupModal
+        isOpen={isCourtStampSetupOpen}
+        onClose={() => setIsCourtStampSetupOpen(false)}
+        onSave={handleCourtStampSetupSaved}
+      />
+
+      {/* ⚙️ Court Stamp Settings Modal */}
+      <CourtStampSettingsModal
+        isOpen={isCourtStampSettingsOpen}
+        template={courtStampTemplate}
+        onClose={() => setIsCourtStampSettingsOpen(false)}
+        onUpdate={(updated) => setCourtStampTemplate(updated)}
+      />
     </div>
   );
 }
@@ -2116,8 +2553,8 @@ function AutoDeleteBanner({
     <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3">
       <Timer className="h-5 w-5 text-amber-700" />
       <div className="flex-1 text-sm text-amber-900">
-        Auto-delete in <b>{remaining}</b>. Only project data & temp files are removed — your saved
-        PDF is untouched.
+        Auto-delete in <b>{remaining}</b>. Only project data & temp files are
+        removed — your saved PDF is untouched.
       </div>
       <button
         onClick={onCancel}

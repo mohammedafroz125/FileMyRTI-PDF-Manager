@@ -17,12 +17,19 @@ class StorageServiceManager implements IStorageProvider {
   public readonly name: StorageProviderType;
 
   constructor() {
-    const envProvider = (import.meta.env.VITE_STORAGE_PROVIDER as string | undefined)?.toLowerCase();
+    const envProvider = (
+      import.meta.env.VITE_STORAGE_PROVIDER as string | undefined
+    )?.toLowerCase();
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-    const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-    const genericApiUrl = import.meta.env.VITE_GENERIC_API_URL as string | undefined;
+    const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY as
+      string | undefined;
+    const genericApiUrl = import.meta.env.VITE_GENERIC_API_URL as
+      string | undefined;
 
-    if (envProvider === "supabase" || (!envProvider && supabaseUrl && supabaseKey)) {
+    if (
+      envProvider === "supabase" ||
+      (!envProvider && supabaseUrl && supabaseKey)
+    ) {
       this.activeAdapter = new SupabaseStorageAdapter();
       this.name = "supabase";
     } else if (envProvider === "generic" || (!envProvider && genericApiUrl)) {
@@ -47,7 +54,10 @@ class StorageServiceManager implements IStorageProvider {
     return this.activeAdapter.getDocument(id);
   }
 
-  createProjectWithOriginals(customerName: string, files: File[]): Promise<RtiDocument> {
+  createProjectWithOriginals(
+    customerName: string,
+    files: File[],
+  ): Promise<RtiDocument> {
     return this.activeAdapter.createProjectWithOriginals(customerName, files);
   }
 
@@ -60,7 +70,7 @@ class StorageServiceManager implements IStorageProvider {
       plan_json: SavedPlan;
       rti_type_selected: RtiTypeSelected;
       deletion_scheduled_at: string | null;
-    }>
+    }>,
   ): Promise<RtiDocument> {
     return this.activeAdapter.updateDocument(id, patch);
   }
@@ -77,7 +87,11 @@ class StorageServiceManager implements IStorageProvider {
     return this.activeAdapter.uploadOriginalFile(docId, file);
   }
 
-  uploadItemFile(docId: string, file: File, kind: "pdf" | "image"): Promise<string> {
+  uploadItemFile(
+    docId: string,
+    file: File,
+    kind: "pdf" | "image",
+  ): Promise<string> {
     return this.activeAdapter.uploadItemFile(docId, file, kind);
   }
 
@@ -85,7 +99,11 @@ class StorageServiceManager implements IStorageProvider {
     return this.activeAdapter.uploadEdited(docId, blob, finalName);
   }
 
-  downloadFromPath(path: string, filename: string, mime: string): Promise<File> {
+  downloadFromPath(
+    path: string,
+    filename: string,
+    mime: string,
+  ): Promise<File> {
     return this.activeAdapter.downloadFromPath(path, filename, mime);
   }
 
@@ -113,7 +131,10 @@ class StorageServiceManager implements IStorageProvider {
     return this.activeAdapter.createMobileToken(docId, ttlMinutes);
   }
 
-  getOrCreateActiveMobileToken(docId: string, ttlMinutes?: number): Promise<MobileToken> {
+  getOrCreateActiveMobileToken(
+    docId: string,
+    ttlMinutes?: number,
+  ): Promise<MobileToken> {
     return this.activeAdapter.getOrCreateActiveMobileToken(docId, ttlMinutes);
   }
 

@@ -17,12 +17,20 @@ import {
   deleteDraft as deleteIdbDraft,
 } from "../../manual-drafts";
 
+import { safeRandomUUID } from "@/lib/utils";
+
 const DOCS_KEY = "idb_rti_documents";
 const ORIGINALS_PREFIX = "idb_rti_originals:";
 const FILES_PREFIX = "idb_rti_files:";
 const TOKENS_KEY = "idb_rti_mobile_tokens";
 
-type StoredFileBlob = { path: string; name: string; mime: string; blob: Blob; createdAt: string };
+type StoredFileBlob = {
+  path: string;
+  name: string;
+  mime: string;
+  blob: Blob;
+  createdAt: string;
+};
 
 export class IndexedDbStorageAdapter implements IStorageProvider {
   name: "indexeddb" = "indexeddb";
@@ -55,8 +63,20 @@ export class IndexedDbStorageAdapter implements IStorageProvider {
     return doc;
   }
 
+  private async trackFileKey(key: string): Promise<void> {
+    try {
+      const keys = (await get<string[]>("idb_file_keys")) ?? [];
+      if (!keys.includes(key)) {
+        keys.push(key);
+        await set("idb_file_keys", keys);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
   async uploadOriginalFile(docId: string, file: File): Promise<string> {
-    const path = `${docId}/originals/${crypto.randomUUID()}-${file.name}`;
+    const path = `${docId}/originals/${safeRandomUUID()}-${file.name}`;
     const stored: StoredFileBlob = {
       path,
       name: file.name,
@@ -65,13 +85,17 @@ export class IndexedDbStorageAdapter implements IStorageProvider {
       createdAt: new Date().toISOString(),
     };
     await set(FILES_PREFIX + path, stored);
+    await this.trackFileKey(FILES_PREFIX + path);
     return path;
   }
 
-  async createProjectWithOriginals(customerName: string, files: File[]): Promise<RtiDocument> {
+  async createProjectWithOriginals(
+    customerName: string,
+    files: File[],
+  ): Promise<RtiDocument> {
     if (files.length === 0) throw new Error("At least one PDF is required.");
 
-    const id = crypto.randomUUID();
+    const id = safeRandomUUID();
     const first = files[0];
     const firstPath = await this.uploadOriginalFile(id, first);
 
@@ -94,7 +118,7 @@ export class IndexedDbStorageAdapter implements IStorageProvider {
 
     const originalsList: RtiOriginal[] = [
       {
-        id: crypto.randomUUID(),
+        id: safeRandomUUID(),
         document_id: id,
         path: firstPath,
         name: first.name,
@@ -107,7 +131,7 @@ export class IndexedDbStorageAdapter implements IStorageProvider {
       const f = files[i];
       const p = await this.uploadOriginalFile(id, f);
       originalsList.push({
-        id: crypto.randomUUID(),
+        id: safeRandomUUID(),
         document_id: id,
         path: p,
         name: f.name,
@@ -132,7 +156,7 @@ export class IndexedDbStorageAdapter implements IStorageProvider {
       plan_json: SavedPlan;
       rti_type_selected: RtiTypeSelected;
       deletion_scheduled_at: string | null;
-    }>
+    }>,
   ): Promise<RtiDocument> {
     const docs = await this.getDocsList();
     const idx = docs.findIndex((d) => d.id === id);
@@ -165,8 +189,12 @@ export class IndexedDbStorageAdapter implements IStorageProvider {
     }
   }
 
-  async uploadItemFile(docId: string, file: File, kind: "pdf" | "image"): Promise<string> {
-    const path = `${docId}/items/${crypto.randomUUID()}-${file.name}`;
+  async uploadItemFile(
+    docId: string,
+    file: File,
+    kind: "pdf" | "image",
+  ): Promise<string> {
+    const path = `${docId}/items/${safeRandomUUID()}-${file.name}`;
     const stored: StoredFileBlob = {
       path,
       name: file.name,
@@ -175,10 +203,15 @@ export class IndexedDbStorageAdapter implements IStorageProvider {
       createdAt: new Date().toISOString(),
     };
     await set(FILES_PREFIX + path, stored);
+    await this.trackFileKey(FILES_PREFIX + path);
     return path;
   }
 
-  async uploadEdited(docId: string, blob: Blob, finalName: string): Promise<string> {
+  async uploadEdited(
+    docId: string,
+    blob: Blob,
+    finalName: string,
+  ): Promise<string> {
     const path = `${docId}/edited/${Date.now()}-${finalName}`;
     const stored: StoredFileBlob = {
       path,
@@ -188,10 +221,15 @@ export class IndexedDbStorageAdapter implements IStorageProvider {
       createdAt: new Date().toISOString(),
     };
     await set(FILES_PREFIX + path, stored);
+    await this.trackFileKey(FILES_PREFIX + path);
     return path;
   }
 
-  async downloadFromPath(path: string, filename: string, mime: string): Promise<File> {
+  async downloadFromPath(
+    path: string,
+    filename: string,
+    mime: string,
+  ): Promise<File> {
     const stored = await get<StoredFileBlob>(FILES_PREFIX + path);
     if (stored && stored.blob) {
       return new File([stored.blob], filename, { type: mime || stored.mime });
@@ -237,16 +275,21 @@ export class IndexedDbStorageAdapter implements IStorageProvider {
     }
   }
 
-  async createMobileToken(docId: string, ttlMinutes = 120): Promise<MobileToken> {
+  async createMobileToken(
+    docId: string,
+    ttlMinutes = 120,
+  ): Promise<MobileToken> {
     let tokens = await this.getTokens();
     tokens = tokens.filter((t) => t.document_id !== docId);
 
-    const tokenStr = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "").slice(0, 8);
+    const tokenStr =
+      safeRandomUUID().replace(/-/g, "") +
+      safeRandomUUID().replace(/-/g, "").slice(0, 8);
     const now = new Date().toISOString();
     const expires_at = new Date(Date.now() + ttlMinutes * 60_000).toISOString();
 
     const newToken: MobileToken = {
-      id: crypto.randomUUID(),
+      id: safeRandomUUID(),
       document_id: docId,
       token: tokenStr,
       expires_at,
@@ -258,10 +301,15 @@ export class IndexedDbStorageAdapter implements IStorageProvider {
     return newToken;
   }
 
-  async getOrCreateActiveMobileToken(docId: string, ttlMinutes = 120): Promise<MobileToken> {
+  async getOrCreateActiveMobileToken(
+    docId: string,
+    ttlMinutes = 120,
+  ): Promise<MobileToken> {
     const tokens = await this.getTokens();
     const active = tokens.find(
-      (t) => t.document_id === docId && new Date(t.expires_at).getTime() > Date.now() + 5000
+      (t) =>
+        t.document_id === docId &&
+        new Date(t.expires_at).getTime() > Date.now() + 5000,
     );
     if (active) return active;
     return this.createMobileToken(docId, ttlMinutes);
@@ -272,8 +320,12 @@ export class IndexedDbStorageAdapter implements IStorageProvider {
     return tokens.find((t) => t.token === token) ?? null;
   }
 
-  async uploadMobileFile(docId: string, token: string, file: File): Promise<string> {
-    const path = `${docId}/items/${Date.now()}-${crypto.randomUUID()}-mobile-${file.name}`;
+  async uploadMobileFile(
+    docId: string,
+    token: string,
+    file: File,
+  ): Promise<string> {
+    const path = `${docId}/items/${Date.now()}-${safeRandomUUID()}-mobile-${file.name}`;
     const stored: StoredFileBlob = {
       path,
       name: file.name,
@@ -282,6 +334,7 @@ export class IndexedDbStorageAdapter implements IStorageProvider {
       createdAt: new Date().toISOString(),
     };
     await set(FILES_PREFIX + path, stored);
+    await this.trackFileKey(FILES_PREFIX + path);
 
     const tokens = await this.getTokens();
     const idx = tokens.findIndex((t) => t.token === token);
@@ -292,7 +345,9 @@ export class IndexedDbStorageAdapter implements IStorageProvider {
     return path;
   }
 
-  async listMobileUploads(docId: string): Promise<{ name: string; path: string }[]> {
+  async listMobileUploads(
+    docId: string,
+  ): Promise<{ name: string; path: string }[]> {
     try {
       const allKeys = (await get<string[]>("idb_file_keys")) ?? [];
       const matches: { name: string; path: string }[] = [];
@@ -300,7 +355,9 @@ export class IndexedDbStorageAdapter implements IStorageProvider {
       for (const k of allKeys) {
         if (k.startsWith(FILES_PREFIX + prefix) && k.includes("-mobile-")) {
           const path = k.slice(FILES_PREFIX.length);
-          const cleanName = path.slice(prefix.length).replace(/^\d+-[a-f0-9-]+-mobile-/, "");
+          const cleanName = path
+            .slice(prefix.length)
+            .replace(/^\d+-[a-f0-9-]+-mobile-/, "");
           matches.push({ name: cleanName, path });
         }
       }
