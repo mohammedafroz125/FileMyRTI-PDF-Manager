@@ -1,38 +1,29 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
   <defs>
-    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#1e40af" />
-      <stop offset="100%" stop-color="#0f172a" />
-    </linearGradient>
-    <linearGradient id="docGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#ffffff" />
-      <stop offset="100%" stop-color="#f1f5f9" />
-    </linearGradient>
-    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#2563eb" />
+    <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6" />
       <stop offset="100%" stop-color="#1d4ed8" />
     </linearGradient>
+    <linearGradient id="redBadge" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ef4444" />
+      <stop offset="100%" stop-color="#b91c1c" />
+    </linearGradient>
   </defs>
-
-  <!-- Background Shield Container -->
-  <rect x="32" y="32" width="448" height="448" rx="96" fill="url(#bgGrad)" />
-
-  <!-- Document Base -->
-  <path d="M140 110 C140 98 149 89 161 89 L290 89 L372 171 L372 401 C372 413 363 422 351 422 L161 422 C149 422 140 413 140 401 Z" fill="url(#docGrad)" />
-
+  
+  <!-- Outer Rounded Blue Container -->
+  <rect x="32" y="32" width="448" height="448" rx="96" fill="url(#blueGrad)" />
+  
+  <!-- White Inner Document Page -->
+  <path d="M 144 112 L 304 112 L 368 176 L 368 400 C 368 413.2 357.2 424 344 424 L 168 424 C 154.8 424 144 413.2 144 400 Z" fill="#ffffff" />
   <!-- Folded Corner -->
-  <path d="M290 89 L372 171 L303 171 C295 171 290 166 290 158 Z" fill="#cbd5e1" />
-
-  <!-- Document Header Banner / RTI Badge -->
-  <rect x="170" y="160" width="172" height="36" rx="8" fill="url(#accentGrad)" />
-  <text x="256" y="185" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="20" font-weight="800" fill="#ffffff" text-anchor="middle" letter-spacing="2">FILE MY RTI</text>
-
+  <path d="M 304 112 L 368 176 L 312 176 C 307.6 176 304 172.4 304 168 Z" fill="#cbd5e1" />
+  
   <!-- Document Text Lines -->
-  <rect x="170" y="225" width="172" height="14" rx="7" fill="#94a3b8" />
-  <rect x="170" y="255" width="140" height="14" rx="7" fill="#cbd5e1" />
-  <rect x="170" y="285" width="160" height="14" rx="7" fill="#cbd5e1" />
-
-  <!-- PDF Badge Seal -->
-  <circle cx="330" cy="350" r="44" fill="#ef4444" />
-  <text x="330" y="358" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="900" fill="#ffffff" text-anchor="middle">PDF</text>
+  <rect x="184" y="200" width="120" height="20" rx="10" fill="#94a3b8" />
+  <rect x="184" y="240" width="144" height="20" rx="10" fill="#cbd5e1" />
+  <rect x="184" y="280" width="100" height="20" rx="10" fill="#cbd5e1" />
+  
+  <!-- PDF Accent Tag -->
+  <rect x="224" y="320" width="152" height="76" rx="18" fill="url(#redBadge)" />
+  <text x="300" y="372" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="900" font-size="40" fill="#ffffff" text-anchor="middle">PDF</text>
 </svg>

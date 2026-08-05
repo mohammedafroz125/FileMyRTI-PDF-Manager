@@ -22,7 +22,12 @@ import {
 } from "@/lib/pdf-optimizer-client";
 import { safeRandomUUID } from "@/lib/utils";
 
+import { useEffect } from "react";
+
 export const Route = createFileRoute("/admin")({
+  head: () => ({
+    meta: [{ title: "FileMyRTI PDF Manager" }],
+  }),
   component: AdminUpload,
 });
 
@@ -38,6 +43,10 @@ const ALLOWED_ACCEPT =
   "application/pdf,.pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg,image/jpg,image/webp,.jpg,.jpeg,.png,.webp";
 
 function AdminUpload() {
+  useEffect(() => {
+    document.title = "FileMyRTI PDF Manager";
+  }, []);
+
   const [slots, setSlots] = useState<UploadSlot[]>([
     { id: safeRandomUUID(), files: [], customerName: "", status: "idle" },
   ]);

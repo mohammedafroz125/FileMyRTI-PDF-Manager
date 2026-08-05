@@ -204,13 +204,13 @@ export function DocumentViewer({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex flex-col bg-slate-950/95 text-white animate-fade-in"
+      className="fixed inset-0 z-[100] flex flex-col bg-slate-950/90 backdrop-blur-md text-white animate-in fade-in zoom-in-95 duration-200"
       role="dialog"
       aria-modal="true"
       ref={containerRef}
     >
       {/* Top Header */}
-      <header className="flex items-center justify-between border-b border-white/10 px-5 py-3 bg-slate-900/90 backdrop-blur-md">
+      <header className="flex items-center justify-between border-b border-white/10 px-5 py-3.5 bg-slate-900/80 backdrop-blur-lg">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="rounded bg-blue-500/20 px-2 py-0.5 text-xs font-bold text-blue-400 border border-blue-500/30">
@@ -246,7 +246,7 @@ export function DocumentViewer({
             type="button"
             title="Rotate 90° (R)"
             onClick={handleRotate}
-            className="rounded-lg p-2 hover:bg-white/10 text-white/80 hover:text-white transition-colors"
+            className="rounded-xl p-2.5 hover:bg-white/10 text-white/80 hover:text-white transition-all active:scale-95 cursor-pointer"
           >
             <RotateCw className="h-4 w-4" />
           </button>
@@ -254,9 +254,9 @@ export function DocumentViewer({
           {/* Download Current File */}
           <button
             type="button"
-            title="Download this file"
+            title="Download current page"
             onClick={handleDownloadCurrent}
-            className="rounded-lg p-2 hover:bg-white/10 text-white/80 hover:text-white transition-colors"
+            className="rounded-xl p-2.5 hover:bg-white/10 text-white/80 hover:text-white transition-all active:scale-95 cursor-pointer"
           >
             <Download className="h-4 w-4" />
           </button>
@@ -269,26 +269,26 @@ export function DocumentViewer({
             type="button"
             title="Zoom Out (-)"
             onClick={() => setZoom((z) => Math.max(0.25, z - 0.25))}
-            className="rounded-lg p-2 hover:bg-white/10 text-white/80 hover:text-white transition-colors"
+            className="rounded-xl p-2.5 hover:bg-white/10 text-white/80 hover:text-white transition-all active:scale-95 cursor-pointer"
           >
             <ZoomOut className="h-4 w-4" />
           </button>
-          <span className="w-12 text-center text-xs font-semibold text-slate-300 select-none tabular-nums">
+          <span className="w-12 text-center text-xs font-bold text-slate-300 select-none tabular-nums">
             {Math.round(zoom * 100)}%
           </span>
           <button
             type="button"
             title="Zoom In (+)"
             onClick={() => setZoom((z) => Math.min(5, z + 0.25))}
-            className="rounded-lg p-2 hover:bg-white/10 text-white/80 hover:text-white transition-colors"
+            className="rounded-xl p-2.5 hover:bg-white/10 text-white/80 hover:text-white transition-all active:scale-95 cursor-pointer"
           >
             <ZoomIn className="h-4 w-4" />
           </button>
           <button
             type="button"
-            title="Fit to Screen (0)"
+            title="Fit to Screen (100%)"
             onClick={() => setZoom(1.0)}
-            className="rounded-lg p-2 hover:bg-white/10 text-white/80 hover:text-white transition-colors"
+            className="rounded-xl p-2.5 hover:bg-white/10 text-white/80 hover:text-white transition-all active:scale-95 cursor-pointer"
           >
             <Maximize2 className="h-4 w-4" />
           </button>
@@ -301,7 +301,7 @@ export function DocumentViewer({
             type="button"
             title="Close Viewer (Esc)"
             onClick={onClose}
-            className="rounded-lg bg-white/10 p-2 text-white/90 hover:bg-red-600 hover:text-white transition-colors"
+            className="rounded-xl bg-white/10 p-2.5 text-white/90 hover:bg-red-600 hover:text-white transition-all active:scale-95 cursor-pointer"
           >
             <X className="h-4 w-4" />
           </button>

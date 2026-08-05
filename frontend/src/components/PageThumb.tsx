@@ -140,33 +140,33 @@ export const PageThumb = React.memo(function PageThumb({
       {...attributes}
       {...listeners}
       onDoubleClick={() => onExpand?.(id)}
-      className={`group relative flex cursor-grab touch-none flex-col overflow-hidden rounded-xl border bg-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:cursor-grabbing ${
+      className={`group relative flex cursor-grab touch-none flex-col overflow-hidden rounded-2xl border bg-white shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg active:cursor-grabbing ${
         isSelected
-          ? "border-blue-600 ring-2 ring-blue-500/30 shadow-md"
-          : "border-slate-200 hover:border-blue-400"
+          ? "border-blue-600 ring-2 ring-blue-500/40 shadow-md bg-blue-50/20"
+          : "border-slate-200/90 hover:border-blue-400/80"
       }`}
     >
-      <div className="relative flex aspect-[3/4] items-center justify-center overflow-hidden bg-slate-50">
+      <div className="relative flex aspect-[3/4] items-center justify-center overflow-hidden bg-slate-50/70">
         {shownThumb ? (
           <img
             src={shownThumb}
             alt={label}
             loading="lazy"
-            className="h-full w-full object-contain transition-transform"
+            className="h-full w-full object-contain transition-transform duration-300 group-hover:scale-[1.02]"
             style={{ transform: `rotate(${rotation}deg)` }}
           />
         ) : shownLoading ? (
           <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
         ) : (
-          <FallbackIcon className="h-8 w-8 text-muted-foreground" />
+          <FallbackIcon className="h-8 w-8 text-slate-300" />
         )}
         <span
-          className={`absolute left-1.5 top-1.5 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${badgeColor}`}
+          className={`absolute left-2 top-2 rounded-md px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider shadow-sm ${badgeColor}`}
         >
           {badgeText}
         </span>
 
-        {/* Extensible Sticker Layer Manager (Court Stamp, IPO, Seals, etc.) */}
+        {/* Extensible Sticker Layer Manager (Court Stamp, Seals, etc.) */}
         <StickerLayerManager
           stickers={stickers}
           containerRef={outerRef}
@@ -175,14 +175,14 @@ export const PageThumb = React.memo(function PageThumb({
           }
         />
 
-        <div className="absolute right-1 top-1 flex flex-col gap-1.5 opacity-100 md:opacity-0 transition-opacity md:group-hover:opacity-100 z-40">
+        <div className="absolute right-1.5 top-1.5 flex flex-col gap-1.5 opacity-100 md:opacity-0 transition-opacity duration-200 md:group-hover:opacity-100 z-40">
           {onExpand && (
             <IconBtn
               onClick={() => onExpand(id)}
               onPointerDown={stop}
               title="View full screen"
             >
-              <Eye className="h-4 w-4" />
+              <Eye className="h-3.5 w-3.5" />
             </IconBtn>
           )}
           {onRotate && (
@@ -191,7 +191,7 @@ export const PageThumb = React.memo(function PageThumb({
               onPointerDown={stop}
               title="Rotate 90°"
             >
-              <RotateCw className="h-4 w-4" />
+              <RotateCw className="h-3.5 w-3.5" />
             </IconBtn>
           )}
           {onReplace && (
@@ -200,7 +200,7 @@ export const PageThumb = React.memo(function PageThumb({
               onPointerDown={stop}
               title="Replace page"
             >
-              <Replace className="h-4 w-4" />
+              <Replace className="h-3.5 w-3.5" />
             </IconBtn>
           )}
           {onDelete && (
@@ -210,17 +210,17 @@ export const PageThumb = React.memo(function PageThumb({
               title="Delete page"
               danger
             >
-              <Trash2 className="h-4 w-4" />
+              <Trash2 className="h-3.5 w-3.5" />
             </IconBtn>
           )}
         </div>
       </div>
-      <div className="border-t border-border px-2 py-1.5">
-        <p className="truncate text-[11px] font-medium text-foreground">
+      <div className="border-t border-slate-100 bg-white px-2.5 py-2">
+        <p className="truncate text-[11px] font-bold text-slate-800 tracking-tight">
           {label}
         </p>
         {sublabel && (
-          <p className="truncate text-[10px] text-muted-foreground">
+          <p className="truncate text-[10px] font-medium text-slate-400 mt-0.5">
             {sublabel}
           </p>
         )}
@@ -252,10 +252,10 @@ function IconBtn({
         e.stopPropagation();
         onClick(e);
       }}
-      className={`flex min-h-[36px] min-w-[36px] items-center justify-center rounded-full bg-white/95 p-2 shadow-md transition-colors ${
+      className={`flex min-h-[32px] min-w-[32px] items-center justify-center rounded-xl bg-white/95 backdrop-blur-md p-1.5 shadow-md border border-slate-200/60 transition-all active:scale-90 ${
         danger
-          ? "text-red-600 hover:bg-red-50 active:bg-red-100"
-          : "text-slate-700 hover:bg-blue-50 active:bg-blue-100"
+          ? "text-red-600 hover:bg-red-50 hover:border-red-200"
+          : "text-slate-700 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200"
       }`}
     >
       {children}

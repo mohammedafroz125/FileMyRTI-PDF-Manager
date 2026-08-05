@@ -151,11 +151,15 @@ export function RtiSidebar({
           </div>
 
           {filteredDocs.length === 0 ? (
-            <p className="px-3 py-4 text-center text-xs text-muted-foreground italic bg-white rounded-lg border border-dashed border-slate-200">
-              {searchQuery
-                ? "No matching projects found."
-                : "No projects in queue."}
-            </p>
+            <div className="flex flex-col items-center justify-center py-5 px-3 text-center bg-slate-50/50 rounded-xl border border-dashed border-slate-200/80">
+              <FileText className="h-5 w-5 text-slate-300 mb-1" />
+              <p className="text-xs font-bold text-slate-700">
+                {searchQuery ? "No matching projects found" : "No projects in queue"}
+              </p>
+              <p className="text-[10px] text-slate-400 mt-0.5 font-medium">
+                {searchQuery ? "Try searching another term" : "Upload files to get started"}
+              </p>
+            </div>
           ) : (
             <ul className="flex flex-col gap-1.5">
               {filteredDocs.map((d) => {
@@ -164,10 +168,10 @@ export function RtiSidebar({
                 return (
                   <li key={d.id} className="group relative">
                     <div
-                      className={`flex items-center justify-between rounded-xl p-2.5 transition-all duration-200 border ${
+                      className={`relative flex items-center justify-between rounded-xl p-2.5 transition-all duration-200 border ${
                         active
-                          ? "bg-blue-50/80 border-blue-200 ring-1 ring-blue-100 shadow-sm"
-                          : "bg-white border-slate-100 hover:border-slate-200 hover:shadow-sm"
+                          ? "bg-blue-50/90 border-blue-200/90 shadow-sm ring-1 ring-blue-500/20 before:absolute before:left-0 before:top-2.5 before:bottom-2.5 before:w-1 before:rounded-r-full before:bg-blue-600 pl-3.5"
+                          : "bg-white border-slate-200/70 hover:border-slate-300 hover:shadow-md hover:-translate-y-0.5"
                       }`}
                     >
                       <button
@@ -192,15 +196,20 @@ export function RtiSidebar({
                             </p>
                             <div className="mt-1 flex items-center justify-between gap-1">
                               <span
-                                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold border ${
+                                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[9px] font-bold border ${
                                   isCompleted
                                     ? "bg-emerald-50 text-emerald-700 border-emerald-200/60"
                                     : "bg-amber-50 text-amber-700 border-amber-200/60"
                                 }`}
                               >
-                                <span
-                                  className={`h-1 w-1 rounded-full ${isCompleted ? "bg-emerald-500" : "bg-amber-500"}`}
-                                />
+                                {isCompleted ? (
+                                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                                ) : (
+                                  <span className="relative flex h-1.5 w-1.5">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-500"></span>
+                                  </span>
+                                )}
                                 {isCompleted ? "Completed" : "Pending"}
                               </span>
                               <span className="text-[9px] text-slate-400 font-medium truncate">
@@ -283,11 +292,15 @@ export function RtiSidebar({
           {draftsExpanded && (
             <>
               {filteredDrafts.length === 0 ? (
-                <p className="px-3 py-4 text-center text-xs text-muted-foreground italic bg-white rounded-lg border border-dashed border-slate-200">
-                  {searchQuery
-                    ? "No matching drafts found."
-                    : "No manual drafts."}
-                </p>
+                <div className="flex flex-col items-center justify-center py-5 px-3 text-center bg-slate-50/50 rounded-xl border border-dashed border-slate-200/80">
+                  <FileEdit className="h-5 w-5 text-slate-300 mb-1" />
+                  <p className="text-xs font-bold text-slate-700">
+                    {searchQuery ? "No matching drafts found" : "No manual drafts"}
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-0.5 font-medium">
+                    {searchQuery ? "Try searching another term" : "Click 'Manual Edit' to create one"}
+                  </p>
+                </div>
               ) : (
                 <ul className="flex flex-col gap-1.5">
                   {filteredDrafts.map((d) => {
@@ -296,10 +309,10 @@ export function RtiSidebar({
                     return (
                       <li key={d.id} className="group relative">
                         <div
-                          className={`flex items-center justify-between rounded-xl p-2.5 transition-all duration-200 border ${
+                          className={`relative flex items-center justify-between rounded-xl p-2.5 transition-all duration-200 border ${
                             active
-                              ? "bg-blue-50/80 border-blue-200 ring-1 ring-blue-100 shadow-sm"
-                              : "bg-white border-slate-100 hover:border-slate-200 hover:shadow-sm"
+                              ? "bg-blue-50/90 border-blue-200/90 shadow-sm ring-1 ring-blue-500/20 before:absolute before:left-0 before:top-2.5 before:bottom-2.5 before:w-1 before:rounded-r-full before:bg-blue-600 pl-3.5"
+                              : "bg-white border-slate-200/70 hover:border-slate-300 hover:shadow-md hover:-translate-y-0.5"
                           }`}
                         >
                           <button
@@ -330,15 +343,20 @@ export function RtiSidebar({
                                 </p>
                                 <div className="mt-1 flex items-center justify-between gap-1">
                                   <span
-                                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold border ${
+                                    className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[9px] font-bold border ${
                                       isCompleted
                                         ? "bg-emerald-50 text-emerald-700 border-emerald-200/60"
                                         : "bg-amber-50 text-amber-700 border-amber-200/60"
                                     }`}
                                   >
-                                    <span
-                                      className={`h-1 w-1 rounded-full ${isCompleted ? "bg-emerald-500" : "bg-amber-500"}`}
-                                    />
+                                    {isCompleted ? (
+                                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                                    ) : (
+                                      <span className="relative flex h-1.5 w-1.5">
+                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-500"></span>
+                                      </span>
+                                    )}
                                     {isCompleted ? "Completed" : "Pending"}
                                   </span>
                                   <span className="text-[9px] text-slate-400 font-medium truncate">

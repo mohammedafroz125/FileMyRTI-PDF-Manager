@@ -77,32 +77,37 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       meta: [
         { charSet: "utf-8" },
         { name: "viewport", content: "width=device-width, initial-scale=1" },
-        { title: "FileMyRTI PDF Manager — Pending Queue & Document Workflow" },
+        { title: "FileMyRTI PDF Manager" },
+        { name: "application-name", content: "FileMyRTI PDF Manager" },
         {
           name: "description",
           content:
-            "FileMyRTI PDF Manager. Manage pending documents, merge PDFs and images, convert Word files, and optimize RTI filings.",
+            "Professional RTI PDF Management System for creating, editing, organizing, and managing RTI documents.",
         },
+        { name: "theme-color", content: "#2563EB" },
         {
           property: "og:title",
-          content: "FileMyRTI PDF Manager — Pending Queue & Document Workflow",
+          content: "FileMyRTI PDF Manager",
         },
         {
           property: "og:description",
           content:
-            "FileMyRTI PDF Manager. Manage pending documents, merge PDFs and images, convert Word files, and optimize RTI filings.",
+            "Professional RTI PDF Management System for creating, editing, organizing, and managing RTI documents.",
         },
         { property: "og:type", content: "website" },
+        { property: "og:site_name", content: "FileMyRTI PDF Manager" },
+        { property: "og:image", content: "/apple-touch-icon.png" },
         { name: "twitter:card", content: "summary_large_image" },
         {
           name: "twitter:title",
-          content: "FileMyRTI PDF Manager — Pending Queue & Document Workflow",
+          content: "FileMyRTI PDF Manager",
         },
         {
           name: "twitter:description",
           content:
-            "FileMyRTI PDF Manager. Manage pending documents, merge PDFs and images, convert Word files, and optimize RTI filings.",
+            "Professional RTI PDF Management System for creating, editing, organizing, and managing RTI documents.",
         },
+        { name: "twitter:image", content: "/apple-touch-icon.png" },
       ],
       links: [
         {
@@ -110,6 +115,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
           href: appCss,
         },
         { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+        { rel: "icon", href: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+        { rel: "apple-touch-icon", href: "/apple-touch-icon.png", sizes: "180x180" },
         { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
       ],
     }),

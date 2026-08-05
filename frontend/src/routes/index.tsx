@@ -563,6 +563,11 @@ function Index() {
     ? (activeDoc?.id ?? null)
     : null;
 
+  // Universal Browser Page Title
+  useEffect(() => {
+    document.title = "FileMyRTI PDF Manager";
+  }, []);
+
   const cacheCurrentProject = () => {
     if (!activeDoc || isManualProject || loadingDoc) return;
 

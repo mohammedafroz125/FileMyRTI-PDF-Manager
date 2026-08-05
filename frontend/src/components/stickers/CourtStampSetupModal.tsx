@@ -87,8 +87,8 @@ export function CourtStampSetupModal({ isOpen, onClose, onSave }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/80 p-4 animate-fade-in">
-      <div className="relative flex flex-col rounded-2xl bg-white p-6 shadow-2xl max-w-lg w-full">
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95 duration-200">
+      <div className="relative flex flex-col rounded-2xl bg-white p-6 shadow-2xl max-w-lg w-full border border-slate-200/80">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 pb-3 mb-4">
           <div className="flex items-center gap-2">

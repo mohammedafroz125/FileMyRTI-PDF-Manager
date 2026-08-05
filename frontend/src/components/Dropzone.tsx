@@ -29,15 +29,17 @@ export function Dropzone({ label, hint, multiple, accept, onFiles }: Props) {
       onDragLeave={() => setOver(false)}
       onDrop={handleDrop}
       onClick={() => inputRef.current?.click()}
-      className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 text-center transition-colors ${
+      className={`group flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed p-8 text-center transition-all duration-200 ${
         over
-          ? "border-blue-500 bg-blue-50"
-          : "border-border bg-card hover:border-blue-400 hover:bg-blue-50/40"
+          ? "border-blue-500 bg-blue-50/80 shadow-md scale-[1.01]"
+          : "border-slate-200 bg-slate-50/50 hover:border-blue-400 hover:bg-blue-50/30 hover:shadow-sm"
       }`}
     >
-      <UploadCloud className="mb-2 h-8 w-8 text-blue-600" />
-      <p className="text-sm font-semibold text-foreground">{label}</p>
-      <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
+      <div className="mb-3 rounded-2xl bg-blue-50 p-3.5 text-blue-600 border border-blue-100 shadow-sm group-hover:scale-110 group-hover:-translate-y-1 transition-all duration-300">
+        <UploadCloud className="h-7 w-7 text-blue-600 group-hover:animate-pulse" />
+      </div>
+      <p className="text-xs sm:text-sm font-bold text-slate-800 tracking-tight">{label}</p>
+      <p className="mt-1 text-[11px] text-slate-500 font-medium">{hint}</p>
       <input
         ref={inputRef}
         type="file"
