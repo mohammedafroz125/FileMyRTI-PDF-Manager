@@ -1,35 +1,20 @@
 import { GhostscriptOptimizer } from "./ghostscript-optimizer";
-import { QpdfOptimizer } from "./qpdf-optimizer";
-import { NativeOptimizer } from "./native-optimizer";
 import type { IPdfOptimizer, OptimizationOptions, OptimizationResult } from "../types";
 
 export class OptimizerManager {
-  private optimizers: IPdfOptimizer[] = [
-    new GhostscriptOptimizer(),
-    new QpdfOptimizer(),
-    new NativeOptimizer(),
-  ];
+  private ghostscriptOptimizer = new GhostscriptOptimizer();
 
   async getAvailableOptimizers(): Promise<string[]> {
-    const available: string[] = [];
-    for (const opt of this.optimizers) {
-      if (await opt.isAvailable()) {
-        available.push(opt.name);
-      }
+    if (await this.ghostscriptOptimizer.isAvailable()) {
+      return [this.ghostscriptOptimizer.name];
     }
-    return available;
+    return [];
   }
 
   async optimize(inputBuffer: Buffer, options?: OptimizationOptions): Promise<OptimizationResult> {
-    for (const opt of this.optimizers) {
-      if (await opt.isAvailable()) {
-        try {
-          return await opt.optimize(inputBuffer, options);
-        } catch (err) {
-          console.warn(`⚠ ${opt.name} failed, attempting next available optimizer fallback...`, err);
-        }
-      }
+    if (!(await this.ghostscriptOptimizer.isAvailable())) {
+      throw new Error("Ghostscript optimization engine is not installed or available on the server.");
     }
-    throw new Error("No PDF optimizer is available on the server.");
+    return await this.ghostscriptOptimizer.optimize(inputBuffer, options);
   }
 }

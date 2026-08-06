@@ -35,7 +35,7 @@ export async function getHealthStatus(_req: Request, res: Response): Promise<voi
       ghostscript: gsAvailable,
       lanIp: getLanIp(),
       supportedInputFormats: [".pdf", ".doc", ".docx", ".png", ".jpg", ".webp"],
-      optimizer: gsAvailable ? "Ghostscript + QPDF Adaptive Engine" : "Native JS Stream Optimizer",
+      optimizer: gsAvailable ? "Ghostscript Adaptive Engine" : "Ghostscript Unavailable",
       availableOptimizers,
       timestamp: new Date().toISOString(),
     };
