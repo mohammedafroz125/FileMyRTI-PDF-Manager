@@ -37,7 +37,7 @@ import { toast } from "sonner";
 import { safeRandomUUID } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  optimizePdfBlobSilently,
+  optimizePdfBlob,
   convertWordToPdfOnServer,
 } from "@/lib/pdf-optimizer-client";
 import { Dropzone } from "@/components/Dropzone";
@@ -220,7 +220,14 @@ async function fileToPdf(
 ): Promise<File | null> {
   const kind = classify(file);
   if (kind === "pdf") {
-    return file;
+    try {
+      if (onStatus) onStatus("Optimizing PDF via Ghostscript...");
+      const blob = await optimizePdfBlob(file, file.name);
+      return new File([blob], file.name, { type: "application/pdf" });
+    } catch (e) {
+      toast.error((e as Error).message || "Failed to optimize PDF on Ghostscript backend.");
+      return null;
+    }
   }
   if (kind === "word") {
     try {
@@ -1652,7 +1659,7 @@ function Index() {
       let blob = await mergeByPlan(originalFiles, plan, (pct) =>
         setStatus({ kind: "working", pct, label: "Merging pages…" }),
       );
-      blob = await optimizePdfBlobSilently(blob, "Balanced", 2);
+      blob = await optimizePdfBlob(blob, "output.pdf", "Balanced", 2);
 
       const filename = sanitizeFile(getOutputFilename());
       const saved = await savePdfBlob(blob, filename);
@@ -1850,7 +1857,7 @@ function Index() {
       let blob = await mergeByPlan(originalFiles, plan, (pct) =>
         setStatus({ kind: "working", pct, label: "Merging pages…" }),
       );
-      blob = await optimizePdfBlobSilently(blob, "Balanced", 2);
+      blob = await optimizePdfBlob(blob, "output.pdf", "Balanced", 2);
       downloadBlob(blob, sanitizeFile(getOutputFilename()));
       setStatus({ kind: "done", message: "Downloaded" });
     } catch (err) {

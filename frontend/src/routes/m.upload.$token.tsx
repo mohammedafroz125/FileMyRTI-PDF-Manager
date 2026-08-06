@@ -13,7 +13,10 @@ import {
   uploadMobileFile,
   type MobileToken,
 } from "@/lib/rti-storage";
-import { convertWordToPdfOnServer } from "@/lib/pdf-optimizer-client";
+import {
+  convertWordToPdfOnServer,
+  optimizePdfBlob,
+} from "@/lib/pdf-optimizer-client";
 
 async function optimizeImage(file: File): Promise<File> {
   const lower = file.name.toLowerCase();
@@ -120,6 +123,8 @@ function MobileUploadPage() {
           lower.endsWith(".doc") ||
           lower.endsWith(".docx") ||
           f.type.includes("word");
+        const isPdf =
+          lower.endsWith(".pdf") || f.type === "application/pdf";
         const isImage =
           /\.(jpe?g|png|webp)$/.test(lower) || f.type.startsWith("image/");
 
@@ -128,6 +133,13 @@ function MobileUploadPage() {
             fileToUpload = await convertWordToPdfOnServer(f);
           } catch (convErr) {
             console.warn("Word document fallback on mobile upload:", convErr);
+          }
+        } else if (isPdf) {
+          try {
+            const blob = await optimizePdfBlob(f, f.name);
+            fileToUpload = new File([blob], f.name, { type: "application/pdf" });
+          } catch (optErr) {
+            console.warn("PDF optimization fallback on mobile upload:", optErr);
           }
         } else if (isImage) {
           fileToUpload = await optimizeImage(f);

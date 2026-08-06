@@ -18,7 +18,7 @@ import {
 import { createProjectWithOriginals } from "@/lib/rti-storage";
 import {
   convertWordToPdfOnServer,
-  optimizePdfBlobSilently,
+  optimizePdfBlob,
 } from "@/lib/pdf-optimizer-client";
 import { safeRandomUUID } from "@/lib/utils";
 
@@ -194,7 +194,12 @@ function AdminUpload() {
             });
           }
 
-          // PDFs & images pass through immediately matching Manual Edit behavior
+          if (isPdf) {
+            updateSlot(slot.id, { errorMsg: "Optimizing PDF..." });
+            const blob = await optimizePdfBlob(f, f.name);
+            return new File([blob], f.name, { type: "application/pdf" });
+          }
+
           return f;
         }),
       );

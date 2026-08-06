@@ -2,17 +2,13 @@
  * Central Backend Service Abstraction Module.
  *
  * Provides a unified interface for document processing.
- * Components interact with this abstraction rather than calling raw backend endpoints directly.
- *
- * Mode 1: Frontend Only Mode (Backend URL unconfigured or offline)
- * Mode 2: Backend Enhanced Mode (Backend URL configured & health check OK)
+ * All PDF optimization requests are processed via Ghostscript on Railway.
  */
 
 import {
   getBackendUrl,
-  isBackendOptimizerAvailable,
   convertWordToPdfOnServer,
-  optimizePdfBlobSilently,
+  optimizePdfBlob,
   UploadStage,
 } from "./pdf-optimizer-client";
 
@@ -31,27 +27,25 @@ export interface ProcessDocumentResult {
 
 export class BackendServiceManager {
   /**
-   * Returns whether the optional backend service is configured and online.
+   * Returns true (Ghostscript backend is mandatory).
    */
   async isAvailable(): Promise<boolean> {
-    return isBackendOptimizerAvailable();
+    return true;
   }
 
   /**
-   * Returns current backend configuration status & URL if set.
+   * Returns current backend configuration status & URL.
    */
-  getConfig(): { configured: boolean; url: string | null } {
+  getConfig(): { configured: boolean; url: string } {
     const url = getBackendUrl();
-    return { configured: url !== null, url };
+    return { configured: true, url };
   }
 
   /**
-   * Universal document processor abstraction.
-   * If file is Word (.doc/.docx):
-   *   - If backend ON: Converts via server-side LibreOffice.
-   *   - If backend OFF: Throws friendly graceful error.
-   * If file is PDF or Image:
-   *   - Returns file directly (0 backend dependency).
+   * Universal document processor.
+   * If Word (.doc/.docx): Converts via server-side LibreOffice + Ghostscript.
+   * If PDF: Optimizes via Ghostscript backend (POST /api/optimize).
+   * If Image: Wraps file.
    */
   async processDocument(
     file: File,
@@ -62,6 +56,7 @@ export class BackendServiceManager {
       lower.endsWith(".doc") ||
       lower.endsWith(".docx") ||
       file.type.includes("word");
+    const isPdf = lower.endsWith(".pdf") || file.type === "application/pdf";
 
     if (isWord) {
       const convertedPdf = await convertWordToPdfOnServer(
@@ -78,20 +73,38 @@ export class BackendServiceManager {
       };
     }
 
-    // PDFs & Images work 100% in frontend-only mode
+    if (isPdf) {
+      if (options?.onStatus) options.onStatus("Optimizing PDF via Ghostscript...");
+      const optimizedBlob = await optimizePdfBlob(
+        file,
+        file.name,
+        options?.profile || "Balanced",
+        options?.targetSizeMB || 2,
+      );
+      const optimizedFile = new File([optimizedBlob], file.name, {
+        type: "application/pdf",
+      });
+      return {
+        file: optimizedFile,
+        converted: false,
+        optimized: true,
+        engineUsed: "Ghostscript Backend",
+      };
+    }
+
     return {
       file,
       converted: false,
       optimized: false,
-      engineUsed: "Browser Native Engine",
+      engineUsed: "Image File",
     };
   }
 
   /**
-   * Optional PDF optimization helper.
+   * Ghostscript PDF optimization helper.
    */
   async optimizePdf(blob: Blob, targetSizeMB: number = 2): Promise<Blob> {
-    return optimizePdfBlobSilently(blob, "Balanced", targetSizeMB);
+    return optimizePdfBlob(blob, "document.pdf", "Balanced", targetSizeMB);
   }
 }
 

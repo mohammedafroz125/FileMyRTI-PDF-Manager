@@ -1,109 +1,64 @@
 /**
- * Optional Backend Microservice Integration & PDF Optimizer / Word Converter Client.
+ * Mandatory Railway Ghostscript Backend PDF Optimizer Client.
  *
- * Automatically detects whether an optional backend service (VITE_BACKEND_URL / VITE_PDF_OPTIMIZER_URL) is configured and available.
- * If configured & available, enables server-side LibreOffice document conversion (.doc / .docx) and Ghostscript adaptive PDF optimization.
- * If unconfigured or offline, gracefully falls back to browser-native processing (0 backend dependency).
+ * Every PDF uploaded or exported is routed directly to the Railway Ghostscript backend (POST /api/optimize).
+ * If the backend fails or is unreachable, throws an explicit user error instead of returning uncompressed original.
  */
 
 export type OptimizationProfile =
-  "High Quality" | "Balanced" | "Maximum Compression";
+  | "High Quality"
+  | "Balanced"
+  | "Maximum Compression";
 export type UploadStage =
-  "Uploading..." | "Converting..." | "Optimizing..." | "Ready";
+  | "Uploading..."
+  | "Converting..."
+  | "Optimizing..."
+  | "Ready";
 
-let backendAvailabilityCache: { available: boolean; timestamp: number } | null =
-  null;
-const CACHE_TTL_MS = 60_000; // Cache availability check for 60 seconds
+const DEFAULT_RAILWAY_BACKEND_URL =
+  "https://pdf-optimizer-backend-production.up.railway.app";
 
 /**
- * Returns the configured backend service base URL from environment variables, or null if unconfigured.
- * Never hardcodes fallback localhost URLs in source code.
+ * Returns the active backend service base URL.
  */
-export function getBackendUrl(): string | null {
+export function getBackendUrl(): string {
   const envUrl = (import.meta.env.VITE_BACKEND_URL ||
     import.meta.env.VITE_PDF_OPTIMIZER_URL) as string | undefined;
-  if (!envUrl) return null;
-  let trimmed = envUrl.trim().replace(/\/+$/, "");
-
-  // If app is opened on mobile phone via LAN IP (e.g. 192.168.x.x) or external host,
-  // adapt 'localhost' in VITE_BACKEND_URL to the current page hostname so mobile phone can reach backend.
-  if (typeof window !== "undefined" && window.location?.hostname) {
-    const pageHost = window.location.hostname;
-    if (pageHost !== "localhost" && pageHost !== "127.0.0.1") {
-      trimmed = trimmed
-        .replace("localhost", pageHost)
-        .replace("127.0.0.1", pageHost);
+  if (envUrl && envUrl.trim().length > 0) {
+    let trimmed = envUrl.trim().replace(/\/+$/, "");
+    if (typeof window !== "undefined" && window.location?.hostname) {
+      const pageHost = window.location.hostname;
+      if (pageHost !== "localhost" && pageHost !== "127.0.0.1") {
+        trimmed = trimmed
+          .replace("localhost", pageHost)
+          .replace("127.0.0.1", pageHost);
+      }
     }
+    return trimmed;
   }
-
-  return trimmed.length > 0 ? trimmed : null;
+  return DEFAULT_RAILWAY_BACKEND_URL;
 }
 
 /**
- * Lightweight startup & runtime check to verify if optional backend microservice is reachable via GET /api/health.
- * Caches availability result to prevent redundant network checks.
- * Rejects silently with 0 console errors, unhandled rejections, or broken UI when unconfigured or offline.
+ * Sends a PDF Blob to the Railway Ghostscript backend for optimization.
+ * Throws an explicit error if backend is unreachable or optimization fails.
  */
-export async function isBackendOptimizerAvailable(): Promise<boolean> {
-  const baseUrl = getBackendUrl();
-  if (!baseUrl) return false;
-
-  // Use cached result if valid
-  if (
-    backendAvailabilityCache &&
-    Date.now() - backendAvailabilityCache.timestamp < CACHE_TTL_MS
-  ) {
-    return backendAvailabilityCache.available;
-  }
-
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2000); // 2s quick ping
-
-    const res = await fetch(`${baseUrl}/api/health`, {
-      method: "GET",
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
-
-    if (res.ok) {
-      const data = await res.json();
-      const isOk = data && data.status === "ok";
-      backendAvailabilityCache = { available: isOk, timestamp: Date.now() };
-      return isOk;
-    }
-  } catch {
-    /* Silent fallback: no console error, no unhandled rejection */
-  }
-
-  backendAvailabilityCache = { available: false, timestamp: Date.now() };
-  return false;
-}
-
-/**
- * Sends a PDF Blob to the optional backend microservice for adaptive optimization.
- * If backend is unconfigured, offline, or fails, returns the original Blob seamlessly.
- */
-export async function optimizePdfBlobSilently(
+export async function optimizePdfBlob(
   originalBlob: Blob,
+  fileName: string = "document.pdf",
   profile: OptimizationProfile | string = "Balanced",
   targetSizeMB: number = 2,
 ): Promise<Blob> {
   const baseUrl = getBackendUrl();
-  if (!baseUrl) return originalBlob;
+  const formData = new FormData();
+  formData.append("pdf", originalBlob, fileName);
+  formData.append("profile", profile);
+  formData.append("targetSizeMB", targetSizeMB.toString());
 
-  const isAvailable = await isBackendOptimizerAvailable();
-  if (!isAvailable) return originalBlob;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 90000); // 90s timeout
 
   try {
-    const formData = new FormData();
-    formData.append("pdf", originalBlob, "input.pdf");
-    formData.append("profile", profile);
-    formData.append("targetSizeMB", targetSizeMB.toString());
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
-
     const res = await fetch(`${baseUrl}/api/optimize`, {
       method: "POST",
       body: formData,
@@ -111,36 +66,47 @@ export async function optimizePdfBlobSilently(
     });
     clearTimeout(timeoutId);
 
-    if (res.ok) {
-      const optimizedArrayBuffer = await res.arrayBuffer();
-      if (optimizedArrayBuffer && optimizedArrayBuffer.byteLength > 0) {
-        return new Blob([optimizedArrayBuffer], { type: "application/pdf" });
+    if (!res.ok) {
+      let errorDetails = `Ghostscript backend optimization failed with status ${res.status}.`;
+      try {
+        const errData = await res.json();
+        if (errData.error) errorDetails = errData.error;
+      } catch {
+        /* ignore */
       }
+      throw new Error(errorDetails);
     }
-  } catch {
-    /* Silent fallback to original Blob */
-  }
 
-  return originalBlob;
+    const optimizedArrayBuffer = await res.arrayBuffer();
+    if (!optimizedArrayBuffer || optimizedArrayBuffer.byteLength === 0) {
+      throw new Error(
+        "Received an empty PDF response from Railway Ghostscript backend.",
+      );
+    }
+
+    return new Blob([optimizedArrayBuffer], { type: "application/pdf" });
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if ((err as Error).name === "AbortError") {
+      throw new Error(
+        "PDF optimization timed out on Railway backend. Please try again.",
+      );
+    }
+    throw err;
+  }
 }
 
+// Export alias for backward compatibility across existing routes
+export const optimizePdfBlobSilently = optimizePdfBlob;
+
 /**
- * Converts a Word document (.doc / .docx) to PDF using the backend microservice.
- * If backend is unconfigured or offline, throws a friendly user-facing error message:
- * "Word document conversion requires the optional backend service. PDF files continue to work normally."
+ * Converts a Word document (.doc / .docx) to PDF using LibreOffice on the Railway backend.
  */
 export async function convertWordToPdfOnServer(
   file: File,
   onProgress?: (stage: UploadStage) => void,
 ): Promise<File> {
   const baseUrl = getBackendUrl();
-  const isAvailable = await isBackendOptimizerAvailable();
-
-  if (!baseUrl || !isAvailable) {
-    throw new Error(
-      "Word document conversion requires the optional backend service. PDF files continue to work normally.",
-    );
-  }
 
   if (onProgress) onProgress("Uploading...");
 
@@ -164,7 +130,7 @@ export async function convertWordToPdfOnServer(
   if (onProgress) onProgress("Optimizing...");
 
   if (!res.ok) {
-    let errorDetails = "Word document conversion failed on server.";
+    let errorDetails = "Word document conversion failed on Railway server.";
     try {
       const errData = await res.json();
       if (errData.details) errorDetails = errData.details;
@@ -186,4 +152,8 @@ export async function convertWordToPdfOnServer(
 
   const pdfFileName = file.name.replace(/\.(docx?|DOCX?)$/, "") + ".pdf";
   return new File([pdfArrayBuffer], pdfFileName, { type: "application/pdf" });
+}
+
+export async function isBackendOptimizerAvailable(): Promise<boolean> {
+  return true;
 }
