@@ -9,10 +9,9 @@ const router = Router();
 router.get("/health", getHealthStatus);
 
 // POST /api/optimize -> PDF / Document Optimization
-router.post("/optimize", uploadMiddleware.single("pdf"), handleOptimizationRequest);
+router.post("/optimize", uploadMiddleware.any(), handleOptimizationRequest);
 
 // POST /api/convert-doc -> DOC / DOCX Conversion & Optimization
-router.post("/convert-doc", uploadMiddleware.single("file"), handleOptimizationRequest);
-router.post("/convert-doc", uploadMiddleware.single("doc"), handleOptimizationRequest);
+router.post("/convert-doc", uploadMiddleware.any(), handleOptimizationRequest);
 
 export default router;

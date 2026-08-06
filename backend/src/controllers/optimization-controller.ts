@@ -11,9 +11,11 @@ export async function handleOptimizationRequest(req: Request, res: Response): Pr
     let inputBuffer: Buffer | null = null;
     let fileName = "document.pdf";
 
-    if (req.file) {
-      inputBuffer = req.file.buffer;
-      if (req.file.originalname) fileName = req.file.originalname;
+    const uploadedFile = req.file || (Array.isArray(req.files) && req.files[0] ? req.files[0] : null);
+
+    if (uploadedFile) {
+      inputBuffer = uploadedFile.buffer;
+      if (uploadedFile.originalname) fileName = uploadedFile.originalname;
     } else if (req.body && Buffer.isBuffer(req.body)) {
       inputBuffer = req.body;
     }
