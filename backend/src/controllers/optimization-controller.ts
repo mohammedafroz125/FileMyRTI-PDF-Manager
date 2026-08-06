@@ -101,6 +101,7 @@ export async function handleOptimizationRequest(req: Request, res: Response): Pr
     }
 
     res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("X-Ghostscript-Version", "ACTIVE");
     res.setHeader("X-Optimization-Engine", result.engineUsed);
     res.setHeader("X-Optimization-Profile", result.profileUsed);
     res.setHeader("X-Converted-From", wasConverted ? "word" : "pdf");
