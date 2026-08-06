@@ -72,6 +72,7 @@ export async function handleOptimizationRequest(req: Request, res: Response): Pr
 
     const gsStartTime = Date.now();
     const result = await optimizerManager.optimize(pdfBuffer, {
+      fileName,
       profile,
       targetSizeMB,
       fastMode,

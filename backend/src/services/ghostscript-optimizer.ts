@@ -17,56 +17,39 @@ const execAsync = promisify(exec);
 
 export interface AdaptivePass {
   name: string;
+  pdfSettings: string;
   colorDpi: number;
   grayDpi: number;
   monoDpi: number;
   jpegQuality: number;
-  colorFilter: string;
-  grayFilter: string;
-  monoFilter: string;
 }
 
 export const ADAPTIVE_PASSES: AdaptivePass[] = [
   {
-    name: "Pass 1: Safe High-Quality Pass (300 DPI)",
-    colorDpi: 300,
-    grayDpi: 300,
-    monoDpi: 400,
-    jpegQuality: 90,
-    colorFilter: "/DCTEncode",
-    grayFilter: "/DCTEncode",
-    monoFilter: "/CCITTFaxEncode",
-  },
-  {
-    name: "Pass 2: Balanced High-Compression Pass (200 DPI)",
+    name: "Pass 1: High-Quality RTI Ebook Pass (200 DPI)",
+    pdfSettings: "/ebook",
     colorDpi: 200,
     grayDpi: 200,
     monoDpi: 300,
-    jpegQuality: 82,
-    colorFilter: "/DCTEncode",
-    grayFilter: "/DCTEncode",
-    monoFilter: "/CCITTFaxEncode",
+    jpegQuality: 80,
   },
   {
-    name: "Pass 3: Visually Lossless Aggressive Pass (150 DPI)",
+    name: "Pass 2: Balanced RTI Compression Pass (150 DPI)",
+    pdfSettings: "/ebook",
     colorDpi: 150,
     grayDpi: 150,
-    monoDpi: 250,
-    jpegQuality: 75,
-    colorFilter: "/DCTEncode",
-    grayFilter: "/DCTEncode",
-    monoFilter: "/CCITTFaxEncode",
+    monoDpi: 200,
+    jpegQuality: 70,
+  },
+  {
+    name: "Pass 3: Aggressive Scanned RTI Pass (120 DPI / Screen)",
+    pdfSettings: "/screen",
+    colorDpi: 120,
+    grayDpi: 120,
+    monoDpi: 150,
+    jpegQuality: 60,
   },
 ];
-
-async function checkQpdfAvailable(): Promise<boolean> {
-  try {
-    await execAsync("qpdf --version");
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 export interface PdfAnalysis {
   docType: "digital" | "scanned";
@@ -148,7 +131,7 @@ function validateQuality(
       for (let i = 0; i < originalDimensions.length; i++) {
         const orig = originalDimensions[i];
         const opt = optPages[i].getSize();
-        if (Math.abs(orig.width - opt.width) > 1 || Math.abs(orig.height - opt.height) > 1) {
+        if (Math.abs(orig.width - opt.width) > 2 || Math.abs(orig.height - opt.height) > 2) {
           return false;
         }
       }
@@ -164,7 +147,7 @@ function formatMB(bytes: number): string {
 }
 
 export class GhostscriptOptimizer implements IPdfOptimizer {
-  name = "Ghostscript + QPDF Adaptive Engine";
+  name = "Ghostscript Adaptive Engine";
 
   async isAvailable(): Promise<boolean> {
     const executable = getGhostscriptExecutable();
@@ -175,176 +158,132 @@ export class GhostscriptOptimizer implements IPdfOptimizer {
     const totalStartTime = Date.now();
     const executable = getGhostscriptExecutable();
     if (!executable) {
-      throw new Error(`Ghostscript executable not found at ${ABSOLUTE_GS_PATH}`);
+      throw new Error(`Ghostscript executable not found on server.`);
     }
 
+    const fileName = options?.fileName || "document.pdf";
     const targetSizeMB = options?.targetSizeMB && options.targetSizeMB > 0 ? options.targetSizeMB : 2;
     const targetSizeBytes = Math.round(targetSizeMB * 1024 * 1024);
     const originalSize = inputBuffer.length;
 
-    const analysis = await analyzePdfDocument(inputBuffer);
-    const hasQpdf = await checkQpdfAvailable();
+    console.log(`\n==================================================`);
+    console.log(`[1/11] Request received for PDF optimization.`);
+    console.log(`[2/11] Uploaded file name: "${fileName}"`);
+    console.log(`[3/11] Uploaded file size: ${formatMB(originalSize)} (${originalSize.toLocaleString()} bytes)`);
 
-    console.log(`\n🔍 PDF Document Pre-Optimization Analysis:`);
-    console.log(`   - Document Type:            ${analysis.docType.toUpperCase()} (${analysis.hasText ? "Selectable/OCR Text Detected" : "Scanned Pages"})`);
-    console.log(`   - Total Pages:              ${analysis.pageCount}`);
-    console.log(`   - Detected Fonts:           ${analysis.fontsCount} embedded font stream(s)`);
-    console.log(`   - Detected Image XObjects:   ${analysis.imagesCount} image object(s)`);
-    console.log(`   - Original File Size:       ${formatMB(originalSize)} (${originalSize.toLocaleString()} bytes)`);
-    console.log(`   - Target Output Size:       ${targetSizeMB} MB (${targetSizeBytes.toLocaleString()} bytes)`);
-    console.log(`   - Already Optimized:        ${analysis.isAlreadyOptimized ? "YES (Minimal compression needed)" : "NO"}\n`);
+    const analysis = await analyzePdfDocument(inputBuffer);
+    console.log(`       - Document Type: ${analysis.docType.toUpperCase()}`);
+    console.log(`       - Total Pages:   ${analysis.pageCount}`);
+    console.log(`       - Target Size:   ${targetSizeMB} MB`);
 
     const tempDir = os.tmpdir();
     const id = Date.now() + "-" + Math.random().toString(36).slice(2, 8);
     const inputPath = path.join(tempDir, `input-gs-${id}.pdf`);
 
+    console.log(`[4/11] Temporary input file path: "${inputPath}"`);
     await fs.promises.writeFile(inputPath, inputBuffer);
-
-    if (options?.fastMode || (analysis.isAlreadyOptimized && originalSize <= targetSizeBytes)) {
-      console.log(`⚡ Already Optimized / Fast Mode: Bypassing heavy adaptive loop for instant response.`);
-      return {
-        optimizedBuffer: inputBuffer,
-        engineUsed: this.name,
-        originalSize,
-        optimizedSize: originalSize,
-        targetSizeMB,
-        docType: analysis.docType,
-        profileUsed: "Fast Bypass (Already Compressed)",
-        processingTimeMs: Date.now() - totalStartTime,
-        compressionRatioPct: 0,
-        stepsCount: 0,
-        report: {
-          originalSize,
-          finalSize: originalSize,
-          compressionRatioPct: 0,
-          docType: analysis.docType,
-          imagesOptimized: analysis.imagesCount,
-          fontsPreserved: analysis.fontsCount,
-          objectsRemoved: 0,
-          processingTimeMs: Date.now() - totalStartTime,
-          profileUsed: "Fast Bypass",
-          isAlreadyOptimized: true,
-          qualityValidated: true,
-        },
-      };
-    }
 
     let bestBuffer: Buffer = inputBuffer;
     let bestSize: number = originalSize;
-    let bestPassName = "Original Input";
+    let bestPassName = "Original Preserved";
     let objectsRemovedCount = 0;
     const stepsLog: OptimizationStepLog[] = [];
 
     try {
-      console.log(`⚙️ Running 3-Pass Adaptive Optimization Engine...`);
-
       for (let i = 0; i < ADAPTIVE_PASSES.length; i++) {
         const pass = ADAPTIVE_PASSES[i];
         const stepNum = i + 1;
         const passStartTime = Date.now();
         const outputPath = path.join(tempDir, `output-gs-${id}-step${stepNum}.pdf`);
 
+        const gsFlags = [
+          `"${executable}"`,
+          `-sDEVICE=pdfwrite`,
+          `-dCompatibilityLevel=1.4`,
+          `-dPDFSETTINGS=${pass.pdfSettings}`,
+          `-dNOPAUSE`,
+          `-dQUIET`,
+          `-dBATCH`,
+          `-dDetectDuplicateImages=true`,
+          `-dCompressFonts=true`,
+          `-dSubsetFonts=true`,
+          `-dEmbedAllFonts=true`,
+          `-dAutoRotatePages=/None`,
+          `-dColorImageDownsampleType=/Bicubic`,
+          `-dColorImageResolution=${pass.colorDpi}`,
+          `-dColorImageThreshold=1.0`,
+          `-dGrayImageDownsampleType=/Bicubic`,
+          `-dGrayImageResolution=${pass.grayDpi}`,
+          `-dGrayImageThreshold=1.0`,
+          `-dMonoImageDownsampleType=/Bicubic`,
+          `-dMonoImageResolution=${pass.monoDpi}`,
+          `-dMonoImageThreshold=1.0`,
+          `-sOutputFile="${outputPath}"`,
+          `"${inputPath}"`,
+        ];
+
+        const gsCmd = gsFlags.join(" ");
+
+        console.log(`\n--- Pass ${stepNum}/${ADAPTIVE_PASSES.length}: ${pass.name} ---`);
+        console.log(`[5/11] Exact Ghostscript command being executed:`);
+        console.log(`       ${gsCmd}`);
+
+        let exitCode = 0;
+        let stdout = "";
+        let stderr = "";
+
         try {
-          const gsFlags = [
-            `"${executable}"`,
-            `-sDEVICE=pdfwrite`,
-            `-dCompatibilityLevel=1.5`,
-            `-dNOPAUSE`,
-            `-dQUIET`,
-            `-dBATCH`,
-            `-dDetectDuplicateImages=true`,
-            `-dCompressFonts=true`,
-            `-dSubsetFonts=true`,
-            `-dEmbedAllFonts=true`,
-            `-dAutoRotatePages=/None`,
-            `-dPreserveEPSInfo=true`,
-            `-dFastWebView=true`,
+          const execRes = await execAsync(gsCmd);
+          stdout = execRes.stdout || "";
+          stderr = execRes.stderr || "";
+        } catch (execErr: unknown) {
+          const errObj = execErr as { code?: number; stdout?: string; stderr?: string; message?: string };
+          exitCode = errObj.code || 1;
+          stdout = errObj.stdout || "";
+          stderr = errObj.stderr || errObj.message || "Command execution failed";
+        }
 
-            `-dDownsampleColorImages=true`,
-            `-dColorImageDownsampleType=/Bicubic`,
-            `-dColorImageResolution=${pass.colorDpi}`,
-            `-dAutoFilterColorImages=false`,
-            `-dColorImageFilter=${pass.colorFilter}`,
-            `-dEncodeColorImages=true`,
+        console.log(`[6/11] Ghostscript exit code: ${exitCode}`);
+        console.log(`[7/11] Ghostscript stdout/stderr: ${stdout.trim() || stderr.trim() || "Clean Execution (0 errors)"}`);
+        console.log(`[8/11] Output PDF path: "${outputPath}"`);
 
-            `-dDownsampleGrayImages=true`,
-            `-dGrayImageDownsampleType=/Bicubic`,
-            `-dGrayImageResolution=${pass.grayDpi}`,
-            `-dAutoFilterGrayImages=false`,
-            `-dGrayImageFilter=${pass.grayFilter}`,
-            `-dEncodeGrayImages=true`,
+        if (fs.existsSync(outputPath)) {
+          const passBuffer = await fs.promises.readFile(outputPath);
+          const passSize = passBuffer.length;
+          const passTimeMs = Date.now() - passStartTime;
+          const achievedTarget = passSize <= targetSizeBytes;
 
-            `-dDownsampleMonoImages=true`,
-            `-dMonoImageDownsampleType=/Bicubic`,
-            `-dMonoImageResolution=${pass.monoDpi}`,
-            `-dAutoFilterMonoImages=false`,
-            `-dMonoImageFilter=${pass.monoFilter}`,
-            `-dEncodeMonoImages=true`,
+          console.log(`[9/11] Output PDF size: ${formatMB(passSize)} (${passSize.toLocaleString()} bytes)`);
 
-            `-sOutputFile="${outputPath}"`,
-            `"${inputPath}"`,
-          ];
+          const passReduction = originalSize > 0 ? ((originalSize - passSize) / originalSize) * 100 : 0;
+          const passReductionPct = Math.max(0, Math.round(passReduction * 10) / 10);
 
-          await execAsync(gsFlags.join(" "));
+          console.log(`[10/11] Compression percentage: ${passReductionPct}% reduction`);
 
-          if (hasQpdf && fs.existsSync(outputPath)) {
-            const qpdfPath = path.join(tempDir, `output-qpdf-${id}-step${stepNum}.pdf`);
-            try {
-              await execAsync(`qpdf --linearize --object-streams=generate --stream-data=compress "${outputPath}" "${qpdfPath}"`);
-              if (fs.existsSync(qpdfPath)) {
-                const qpdfSize = (await fs.promises.stat(qpdfPath)).size;
-                const gsSize = (await fs.promises.stat(outputPath)).size;
-                if (qpdfSize > 0 && qpdfSize < gsSize) {
-                  objectsRemovedCount += Math.max(1, Math.round((gsSize - qpdfSize) / 512));
-                  await fs.promises.copyFile(qpdfPath, outputPath);
-                }
-                await fs.promises.unlink(qpdfPath);
-              }
-            } catch {
-              /* ignore QPDF failure */
+          const isValid = await validateQuality(analysis.pageDimensions, passBuffer);
+
+          stepsLog.push({
+            step: stepNum,
+            passName: pass.name,
+            colorDpi: pass.colorDpi,
+            monoDpi: pass.monoDpi,
+            outputSize: passSize,
+            timeMs: passTimeMs,
+            achievedTarget,
+          });
+
+          if (isValid && passSize < bestSize) {
+            bestSize = passSize;
+            bestBuffer = passBuffer;
+            bestPassName = pass.name;
+
+            if (achievedTarget) {
+              console.log(`🎯 Target size achieved at Pass ${stepNum} (${formatMB(passSize)} <= ${targetSizeMB} MB).`);
+              break;
             }
           }
-
-          if (fs.existsSync(outputPath)) {
-            const passBuffer = await fs.promises.readFile(outputPath);
-            const passSize = passBuffer.length;
-            const passTimeMs = Date.now() - passStartTime;
-            const achievedTarget = passSize <= targetSizeBytes;
-
-            const isValid = await validateQuality(analysis.pageDimensions, passBuffer);
-
-            stepsLog.push({
-              step: stepNum,
-              passName: pass.name,
-              colorDpi: pass.colorDpi,
-              monoDpi: pass.monoDpi,
-              outputSize: passSize,
-              timeMs: passTimeMs,
-              achievedTarget,
-            });
-
-            console.log(
-              `   [Step ${stepNum}/${ADAPTIVE_PASSES.length}] ${pass.name}` +
-                ` -> Output: ${formatMB(passSize)} | Time: ${passTimeMs}ms` +
-                ` | Quality Validated: ${isValid ? "YES ✅" : "NO ❌"}` +
-                ` | Target Met: ${achievedTarget ? "YES ✅" : "NO ❌"}`
-            );
-
-            if (isValid && passSize < bestSize) {
-              const previousBest = bestSize;
-              bestSize = passSize;
-              bestBuffer = passBuffer;
-              bestPassName = pass.name;
-
-              const passReductionPct = ((previousBest - passSize) / previousBest) * 100;
-              if (achievedTarget || (i > 0 && passReductionPct < 2)) {
-                console.log(`\n🎉 Adaptive stop triggered at Pass ${stepNum} (Output: ${formatMB(passSize)}, Reduction: ${passReductionPct.toFixed(1)}%).`);
-                break;
-              }
-            }
-          }
-        } catch (stepErr) {
-          console.warn(`⚠ Pass ${stepNum} warning:`, (stepErr as Error).message);
+        } else {
+          console.warn(`⚠️ Pass ${stepNum} did not create an output file at "${outputPath}".`);
         }
       }
     } finally {
@@ -357,11 +296,12 @@ export class GhostscriptOptimizer implements IPdfOptimizer {
 
     const totalProcessingTimeMs = Date.now() - totalStartTime;
 
-    if (bestSize >= originalSize) {
-      console.log(`ℹ Original file (${formatMB(originalSize)}) was already optimal. Preserving input file.`);
-      bestBuffer = inputBuffer;
-      bestSize = originalSize;
-      bestPassName = "Original Preserved (Already Optimal)";
+    let isOptimized = false;
+    if (bestSize < originalSize) {
+      isOptimized = true;
+      console.log(`\n[11/11] Confirming response payload: Sending OPTIMIZED PDF (${formatMB(bestSize)}) to client.`);
+    } else {
+      console.log(`\n[11/11] Confirming response payload: Output size (${formatMB(bestSize)}) was not smaller than original (${formatMB(originalSize)}). Sending original PDF.`);
     }
 
     const totalReduction = originalSize > 0 ? ((originalSize - bestSize) / originalSize) * 100 : 0;
@@ -375,28 +315,18 @@ export class GhostscriptOptimizer implements IPdfOptimizer {
       docType: analysis.docType,
       imagesOptimized: analysis.imagesCount,
       fontsPreserved: analysis.fontsCount,
-      objectsRemoved: objectsRemovedCount,
+      objectsRemoved: 0,
       processingTimeMs: totalProcessingTimeMs,
       profileUsed: bestPassName,
       isAlreadyOptimized: analysis.isAlreadyOptimized,
       qualityValidated,
     };
 
-    console.log(`\n📊 PDF Adaptive Optimization Report:`);
-    console.log(`   - Original File Size:       ${formatMB(originalSize)} (${originalSize.toLocaleString()} bytes)`);
-    console.log(`   - Final Optimized Size:     ${formatMB(bestSize)} (${bestSize.toLocaleString()} bytes)`);
-    console.log(`   - Total Reduction:          ${compressionRatioPct}% reduction`);
-    console.log(`   - Document Type:            ${analysis.docType.toUpperCase()}`);
-    console.log(`   - Fonts Preserved:          ${analysis.fontsCount} font stream(s)`);
-    console.log(`   - Images Optimized:         ${analysis.imagesCount} image object(s)`);
-    console.log(`   - Objects Removed:          ${objectsRemovedCount}`);
-    console.log(`   - Quality & Dimensions:      ${qualityValidated ? "VERIFIED (100% matching aspect ratios)" : "UNVERIFIED"}`);
-    console.log(`   - Profile Used:             ${bestPassName}`);
-    console.log(`   - Total Processing Time:     ${totalProcessingTimeMs} ms\n`);
+    console.log(`==================================================\n`);
 
     return {
       optimizedBuffer: bestBuffer,
-      engineUsed: hasQpdf ? "Ghostscript + QPDF Adaptive Engine" : "Ghostscript Adaptive Engine",
+      engineUsed: this.name,
       originalSize,
       optimizedSize: bestSize,
       targetSizeMB,

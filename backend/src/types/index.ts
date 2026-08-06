@@ -38,6 +38,7 @@ export interface OptimizationResult {
 }
 
 export interface OptimizationOptions {
+  fileName?: string;
   profile?: string;
   targetSizeMB?: number;
   fastMode?: boolean;
