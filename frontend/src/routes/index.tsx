@@ -221,6 +221,7 @@ async function fileToPdf(
   const kind = classify(file);
   if (kind === "pdf") {
     try {
+      console.log("CALLING optimizePdfBlob");
       if (onStatus) onStatus("Optimizing PDF via Ghostscript...");
       const blob = await optimizePdfBlob(file, file.name);
       return new File([blob], file.name, { type: "application/pdf" });
@@ -1659,6 +1660,7 @@ function Index() {
       let blob = await mergeByPlan(originalFiles, plan, (pct) =>
         setStatus({ kind: "working", pct, label: "Merging pages…" }),
       );
+      console.log("CALLING optimizePdfBlob");
       blob = await optimizePdfBlob(blob, "output.pdf", "Balanced", 2);
 
       const filename = sanitizeFile(getOutputFilename());
@@ -1857,6 +1859,7 @@ function Index() {
       let blob = await mergeByPlan(originalFiles, plan, (pct) =>
         setStatus({ kind: "working", pct, label: "Merging pages…" }),
       );
+      console.log("CALLING optimizePdfBlob");
       blob = await optimizePdfBlob(blob, "output.pdf", "Balanced", 2);
       downloadBlob(blob, sanitizeFile(getOutputFilename()));
       setStatus({ kind: "done", message: "Downloaded" });

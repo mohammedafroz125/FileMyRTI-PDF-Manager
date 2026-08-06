@@ -195,6 +195,7 @@ function AdminUpload() {
           }
 
           if (isPdf) {
+            console.log("CALLING optimizePdfBlob");
             updateSlot(slot.id, { errorMsg: "Optimizing PDF..." });
             const blob = await optimizePdfBlob(f, f.name);
             return new File([blob], f.name, { type: "application/pdf" });

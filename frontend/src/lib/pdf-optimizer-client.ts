@@ -25,16 +25,7 @@ export function getBackendUrl(): string {
   const envUrl = (import.meta.env.VITE_BACKEND_URL ||
     import.meta.env.VITE_PDF_OPTIMIZER_URL) as string | undefined;
   if (envUrl && envUrl.trim().length > 0) {
-    let trimmed = envUrl.trim().replace(/\/+$/, "");
-    if (typeof window !== "undefined" && window.location?.hostname) {
-      const pageHost = window.location.hostname;
-      if (pageHost !== "localhost" && pageHost !== "127.0.0.1") {
-        trimmed = trimmed
-          .replace("localhost", pageHost)
-          .replace("127.0.0.1", pageHost);
-      }
-    }
-    return trimmed;
+    return envUrl.trim().replace(/\/+$/, "");
   }
   return DEFAULT_RAILWAY_BACKEND_URL;
 }
@@ -49,7 +40,10 @@ export async function optimizePdfBlob(
   profile: OptimizationProfile | string = "Balanced",
   targetSizeMB: number = 2,
 ): Promise<Blob> {
+  console.log("CALLING optimizePdfBlob");
   const baseUrl = getBackendUrl();
+  console.log("POSTING TO", baseUrl + "/api/optimize");
+
   const formData = new FormData();
   formData.append("pdf", originalBlob, fileName);
   formData.append("profile", profile);

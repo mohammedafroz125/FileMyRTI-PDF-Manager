@@ -136,6 +136,7 @@ function MobileUploadPage() {
           }
         } else if (isPdf) {
           try {
+            console.log("CALLING optimizePdfBlob");
             const blob = await optimizePdfBlob(f, f.name);
             fileToUpload = new File([blob], f.name, { type: "application/pdf" });
           } catch (optErr) {
