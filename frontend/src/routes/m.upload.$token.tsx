@@ -102,8 +102,6 @@ function MobileUploadPage() {
     getTokenInfo(token)
       .then((t) => {
         if (!t) return setState("invalid");
-        if (new Date(t.expires_at).getTime() < Date.now())
-          return setState("expired");
         setInfo(t);
         setState("ready");
       })

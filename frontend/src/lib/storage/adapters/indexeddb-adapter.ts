@@ -277,16 +277,17 @@ export class IndexedDbStorageAdapter implements IStorageProvider {
 
   async createMobileToken(
     docId: string,
-    ttlMinutes = 120,
+    _ttlMinutes = 120,
   ): Promise<MobileToken> {
     let tokens = await this.getTokens();
-    tokens = tokens.filter((t) => t.document_id !== docId);
+    const existing = tokens.find((t) => t.document_id === docId);
+    if (existing) return existing;
 
     const tokenStr =
       safeRandomUUID().replace(/-/g, "") +
       safeRandomUUID().replace(/-/g, "").slice(0, 8);
     const now = new Date().toISOString();
-    const expires_at = new Date(Date.now() + ttlMinutes * 60_000).toISOString();
+    const expires_at = "2099-12-31T23:59:59.000Z";
 
     const newToken: MobileToken = {
       id: safeRandomUUID(),
@@ -306,11 +307,7 @@ export class IndexedDbStorageAdapter implements IStorageProvider {
     ttlMinutes = 120,
   ): Promise<MobileToken> {
     const tokens = await this.getTokens();
-    const active = tokens.find(
-      (t) =>
-        t.document_id === docId &&
-        new Date(t.expires_at).getTime() > Date.now() + 5000,
-    );
+    const active = tokens.find((t) => t.document_id === docId);
     if (active) return active;
     return this.createMobileToken(docId, ttlMinutes);
   }

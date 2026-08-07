@@ -384,7 +384,6 @@ export class SupabaseStorageAdapter implements IStorageProvider {
         .from("rti_mobile_tokens")
         .select("*")
         .eq("document_id", docId)
-        .gt("expires_at", new Date(Date.now() + 5000).toISOString())
         .order("created_at", { ascending: false })
         .limit(1);
 
@@ -437,7 +436,7 @@ export class SupabaseStorageAdapter implements IStorageProvider {
       await supabase
         .from("rti_mobile_tokens")
         .update({
-          expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
+          created_at: new Date().toISOString(),
         })
         .eq("token", token);
     } catch (err) {

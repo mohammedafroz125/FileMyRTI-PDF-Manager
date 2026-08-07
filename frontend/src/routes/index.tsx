@@ -1249,6 +1249,7 @@ function Index() {
 
           if (cancelled) return;
           await registerItem(file, kind);
+          toast.success(`New file received via QR upload: ${m.name}`);
         }
       } catch (err) {
         console.warn("Mobile upload polling notice:", err);
@@ -1256,7 +1257,7 @@ function Index() {
     };
 
     void tick();
-    const iv = window.setInterval(tick, 3000);
+    const iv = window.setInterval(tick, 2000);
 
     const channel = supabase
       .channel(`mobile_poll_${effectiveId}`)

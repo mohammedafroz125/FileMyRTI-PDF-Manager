@@ -73,21 +73,6 @@ export function QrPhonePanel({ docId, sessionId }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveId]);
 
-  // Auto-regenerate token in background when it approaches expiry
-  useEffect(() => {
-    if (!token) return;
-    const expiresAtMs = new Date(token.expires_at).getTime();
-
-    const interval = setInterval(() => {
-      const remainingMs = expiresAtMs - Date.now();
-      if (remainingMs <= 5000) {
-        void generate(true);
-      }
-    }, 10000);
-
-    return () => clearInterval(interval);
-  }, [token, effectiveId]);
-
   const [qrModalOpen, setQrModalOpen] = useState(false);
 
   const copy = async () => {
@@ -139,15 +124,6 @@ export function QrPhonePanel({ docId, sessionId }: Props) {
                 <QrCode className="h-3.5 w-3.5 text-blue-600" /> Phone Upload /
                 Scanner
               </h3>
-              {token && (
-                <span className="text-[10px] font-medium text-slate-400">
-                  Expires at{" "}
-                  {new Date(token.expires_at).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </span>
-              )}
             </div>
 
             <p className="text-[11px] text-slate-500 leading-tight">
