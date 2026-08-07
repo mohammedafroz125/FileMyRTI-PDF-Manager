@@ -64,7 +64,7 @@ export function DocumentViewer({
   }, [initialIndex, isOpen]);
 
   const activeItem = items[currentIndex];
-  const effectiveRotation = ((activeItem?.rotation ?? 0) + extraRotation) % 360;
+  const effectiveRotation = (activeItem?.rotation ?? 0) % 360;
 
   // Generate URL for image or render PDF page
   useEffect(() => {
@@ -145,7 +145,6 @@ export function DocumentViewer({
   // Rotate handler
   const handleRotate = () => {
     if (!activeItem) return;
-    setExtraRotation((r) => (r + 90) % 360);
     if (onRotateItem) {
       onRotateItem(activeItem.id);
     }

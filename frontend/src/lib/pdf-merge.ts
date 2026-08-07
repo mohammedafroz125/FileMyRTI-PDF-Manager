@@ -256,10 +256,7 @@ export async function mergeByPlan(
       const page = pageLookup?.get(entry.pageIndex);
       if (page) {
         if (entry.rotation) {
-          const currentRotation = page.getRotation().angle;
-          page.setRotation(
-            degrees((((currentRotation + entry.rotation) % 360) + 360) % 360),
-          );
+          page.setRotation(degrees(((entry.rotation % 360) + 360) % 360));
         }
         addedPage = out.addPage(page);
       }
@@ -272,10 +269,7 @@ export async function mergeByPlan(
         const page = pageLookup?.get(pageIndex);
         if (page) {
           if (entry.rotation) {
-            const currentRotation = page.getRotation().angle;
-            page.setRotation(
-              degrees((((currentRotation + entry.rotation) % 360) + 360) % 360),
-            );
+            page.setRotation(degrees(((entry.rotation % 360) + 360) % 360));
           }
           addedPage = out.addPage(page);
         }

@@ -14,6 +14,8 @@ export type DraftItem = {
   kind: "pdf" | "image";
   file: DraftFileBlob;
 };
+import type { PageSticker, StickerTemplate } from "./stickers";
+
 export type DraftTimelineEntry =
   | {
       id: string;
@@ -21,6 +23,7 @@ export type DraftTimelineEntry =
       originalId: string;
       pageIndex: number;
       rotation?: number;
+      stickers?: PageSticker[];
     }
   | {
       id: string;
@@ -28,6 +31,7 @@ export type DraftTimelineEntry =
       itemId: string;
       pageIndex?: number;
       rotation?: number;
+      stickers?: PageSticker[];
     };
 
 export type ManualDraft = {
@@ -42,6 +46,7 @@ export type ManualDraft = {
   originals: DraftOriginal[];
   items: DraftItem[];
   timeline: DraftTimelineEntry[];
+  courtStampTemplate?: StickerTemplate | null;
 };
 
 const KEY_PREFIX = "manual-draft:";

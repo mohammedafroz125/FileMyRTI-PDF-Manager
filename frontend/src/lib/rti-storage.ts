@@ -42,7 +42,7 @@ export type SavedPlanItem = {
   path: string;
 };
 
-import type { PageSticker } from "./stickers";
+import type { PageSticker, StickerTemplate } from "./stickers";
 
 export type SavedTimelineEntry =
   | {
@@ -65,6 +65,7 @@ export type SavedTimelineEntry =
 export type SavedPlan = {
   items: SavedPlanItem[];
   timeline: SavedTimelineEntry[];
+  courtStampTemplate?: StickerTemplate | null;
 };
 
 export type MobileToken = {

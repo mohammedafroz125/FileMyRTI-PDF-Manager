@@ -53,6 +53,7 @@ import { CourtStampSetupModal } from "@/components/stickers/CourtStampSetupModal
 import { CourtStampSettingsModal } from "@/components/stickers/CourtStampSettingsModal";
 import {
   getCourtStampTemplate,
+  saveStickerTemplate,
   type StickerTemplate,
   type PageSticker,
 } from "@/lib/stickers";
@@ -465,8 +466,9 @@ function Index() {
     toast.success("Court Stamp added to page!");
   };
 
-  const handleCourtStampSetupSaved = (template: StickerTemplate) => {
+  const handleCourtStampSetupSaved = async (template: StickerTemplate) => {
     setCourtStampTemplate(template);
+    await saveStickerTemplate(template);
     // Immediately insert onto active page
     const targetEntryId = selectedPageEntryId ?? timeline[0]?.id;
     if (targetEntryId) {
@@ -858,6 +860,10 @@ function Index() {
           } else {
             migrated.push(e);
           }
+        }
+        if (plan.courtStampTemplate) {
+          setCourtStampTemplate(plan.courtStampTemplate);
+          void saveStickerTemplate(plan.courtStampTemplate);
         }
         setTimeline(migrated);
       } else {
@@ -1283,7 +1289,7 @@ function Index() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeDoc?.id, isManualProject]);
 
-  // Live-update status via realtime
+  // Live-update status & plan via realtime
   useEffect(() => {
     if (!activeDoc || isManualProject) return;
     const channel = supabase
@@ -1296,13 +1302,41 @@ function Index() {
           table: "rti_documents",
           filter: `id=eq.${activeDoc.id}`,
         },
-        (payload) => setActiveDoc(payload.new as RtiDocument),
+        (payload) => {
+          const updated = payload.new as RtiDocument;
+          if (updated) {
+            setActiveDoc(updated);
+            if (updated.plan_json) {
+              if (updated.plan_json.courtStampTemplate) {
+                setCourtStampTemplate(updated.plan_json.courtStampTemplate);
+                void saveStickerTemplate(updated.plan_json.courtStampTemplate);
+              }
+              if (updated.plan_json.timeline) {
+                setTimeline((prev) =>
+                  prev.map((local) => {
+                    const match = updated.plan_json?.timeline.find(
+                      (r) => r.id === local.id,
+                    );
+                    if (match) {
+                      return {
+                        ...local,
+                        rotation: match.rotation ?? local.rotation,
+                        stickers: match.stickers ?? local.stickers,
+                      };
+                    }
+                    return local;
+                  }),
+                );
+              }
+            }
+          }
+        },
       )
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [activeDoc?.id]);
+  }, [activeDoc?.id, isManualProject]);
 
   useEffect(() => {
     cacheCurrentProject();
@@ -1704,7 +1738,7 @@ function Index() {
         kind: it.kind,
         path: nextPaths[it.id],
       }));
-      const savedPlan: SavedPlan = { items: savedItems, timeline };
+      const savedPlan: SavedPlan = { items: savedItems, timeline, courtStampTemplate };
       const editedPath = await uploadEdited(activeDoc.id, blob, filename);
       const patch: Parameters<typeof updateDocument>[1] = {
         plan_json: savedPlan,
