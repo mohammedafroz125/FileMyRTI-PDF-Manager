@@ -676,13 +676,19 @@ function Index() {
   const registerItem = async (
     file: File,
     kind: "pdf" | "image",
-    opts?: { append?: boolean; replaceEntryId?: string; insertIndex?: number },
+    opts?: {
+      append?: boolean;
+      replaceEntryId?: string;
+      insertIndex?: number;
+      mobilePath?: string;
+    },
   ): Promise<void> => {
     const it: MergeItem = {
       id: `item-${safeRandomUUID()}`,
       name: file.name,
       kind,
       file,
+      mobilePath: opts?.mobilePath,
     };
     setItems((prev) => [...prev, it]);
 
@@ -820,11 +826,16 @@ function Index() {
 
       const plan = doc.plan_json as SavedPlan | null;
       if (plan) {
+        const seenSet = new Set<string>(plan.processedMobilePaths ?? []);
         const restoredItems: MergeItem[] = [];
         const nextPaths: Record<string, string> = {};
         const nextThumbs: Record<string, string[]> = {};
         const nextCounts: Record<string, number> = {};
         for (const savedItem of plan.items) {
+          if (savedItem.mobilePath) seenSet.add(savedItem.mobilePath);
+          if (savedItem.path && savedItem.path.includes("-mobile-")) {
+            seenSet.add(savedItem.path);
+          }
           try {
             const f = await loadItemFile(savedItem);
             restoredItems.push({
@@ -832,6 +843,7 @@ function Index() {
               name: savedItem.name,
               kind: savedItem.kind,
               file: f,
+              mobilePath: savedItem.mobilePath,
             });
             nextPaths[savedItem.id] = savedItem.path;
             if (savedItem.kind === "image") {
@@ -851,6 +863,7 @@ function Index() {
             console.error("Skipping missing item", savedItem, e);
           }
         }
+        seenMobilePathsRef.current = seenSet;
         setItems(restoredItems);
         setItemPaths(nextPaths);
         setItemThumbs(nextThumbs);
@@ -1159,15 +1172,23 @@ function Index() {
       setOriginals(loadedOriginals);
       setOriginalPageCounts(countsMap);
 
+      const seenSet = new Set<string>(d.processedMobilePaths ?? []);
       const restoredItems: MergeItem[] = [];
       const nextThumbs: Record<string, string[]> = {};
       const nextCounts: Record<string, number> = {};
       for (const it of d.items) {
+        if (it.mobilePath) seenSet.add(it.mobilePath);
         const file = new File([it.file.blob], it.file.name, {
           type:
             it.file.type || (it.kind === "pdf" ? "application/pdf" : "image/*"),
         });
-        restoredItems.push({ id: it.id, name: it.name, kind: it.kind, file });
+        restoredItems.push({
+          id: it.id,
+          name: it.name,
+          kind: it.kind,
+          file,
+          mobilePath: it.mobilePath,
+        });
         if (it.kind === "image") {
           const url = URL.createObjectURL(file);
           objectUrlsRef.current.push(url);
@@ -1181,6 +1202,7 @@ function Index() {
           }
         }
       }
+      seenMobilePathsRef.current = seenSet;
       setItems(restoredItems);
       setItemThumbs(nextThumbs);
       setItemPageCounts(nextCounts);
@@ -1238,9 +1260,11 @@ function Index() {
     const tick = async () => {
       try {
         const list = await listMobileUploads(effectiveId);
-        const fresh = list.filter(
-          (m) => !seenMobilePathsRef.current.has(m.path),
-        );
+        const fresh = list.filter((m) => {
+          if (seenMobilePathsRef.current.has(m.path)) return false;
+          if (items.some((it) => it.mobilePath === m.path)) return false;
+          return true;
+        });
         if (!fresh.length || cancelled) return;
 
         for (const m of fresh) seenMobilePathsRef.current.add(m.path);
@@ -1272,7 +1296,7 @@ function Index() {
 
           if (cancelled) return;
           // Mobile uploads insert at Position 2 (index 1, immediately after Page 1)
-          await registerItem(file, kind, { insertIndex: 1 });
+          await registerItem(file, kind, { insertIndex: 1, mobilePath: m.path });
           toast.success(`New file received via QR upload: ${m.name}`);
         }
       } catch (err) {
@@ -1397,8 +1421,14 @@ function Index() {
           name: it.name,
           kind: it.kind,
           path: nextPaths[it.id],
+          mobilePath: it.mobilePath,
         }));
-      const savedPlan: SavedPlan = { items: savedItems, timeline };
+      const savedPlan: SavedPlan = {
+        items: savedItems,
+        timeline,
+        courtStampTemplate,
+        processedMobilePaths: Array.from(seenMobilePathsRef.current),
+      };
       await updateDocument(activeDoc.id, { plan_json: savedPlan });
     } catch (e) {
       console.error("Auto-persist failed", e);
@@ -1458,8 +1488,11 @@ function Index() {
             name: it.name,
             kind: it.kind,
             file: { name: it.file.name, type: it.file.type, blob: it.file },
+            mobilePath: it.mobilePath,
           })),
           timeline,
+          courtStampTemplate,
+          processedMobilePaths: Array.from(seenMobilePathsRef.current),
         };
         await saveDraft(draft);
         await refreshDrafts();

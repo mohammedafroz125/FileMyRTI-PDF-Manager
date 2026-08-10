@@ -13,6 +13,7 @@ export type DraftItem = {
   name: string;
   kind: "pdf" | "image";
   file: DraftFileBlob;
+  mobilePath?: string;
 };
 import type { PageSticker, StickerTemplate } from "./stickers";
 
@@ -47,6 +48,7 @@ export type ManualDraft = {
   items: DraftItem[];
   timeline: DraftTimelineEntry[];
   courtStampTemplate?: StickerTemplate | null;
+  processedMobilePaths?: string[];
 };
 
 const KEY_PREFIX = "manual-draft:";

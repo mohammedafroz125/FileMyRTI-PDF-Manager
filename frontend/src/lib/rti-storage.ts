@@ -40,6 +40,7 @@ export type SavedPlanItem = {
   name: string;
   kind: "pdf" | "image";
   path: string;
+  mobilePath?: string;
 };
 
 import type { PageSticker, StickerTemplate } from "./stickers";
@@ -66,6 +67,7 @@ export type SavedPlan = {
   items: SavedPlanItem[];
   timeline: SavedTimelineEntry[];
   courtStampTemplate?: StickerTemplate | null;
+  processedMobilePaths?: string[];
 };
 
 export type MobileToken = {

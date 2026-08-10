@@ -11,6 +11,7 @@ export type MergeItem = {
   name: string;
   kind: "pdf" | "image";
   file: File;
+  mobilePath?: string;
 };
 
 import type { PageSticker } from "./stickers";
