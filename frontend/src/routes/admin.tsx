@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Plus,
   UploadCloud,
@@ -21,8 +21,6 @@ import {
   optimizePdfBlob,
 } from "@/lib/pdf-optimizer-client";
 import { safeRandomUUID } from "@/lib/utils";
-
-import { useEffect } from "react";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({
@@ -50,7 +48,7 @@ function AdminUpload() {
   const [slots, setSlots] = useState<UploadSlot[]>([
     { id: safeRandomUUID(), files: [], customerName: "", status: "idle" },
   ]);
-  const [bulkUploadMode, setBulkUploadMode] = useState(false);
+  const [createSeparateProjects, setCreateSeparateProjects] = useState(false);
   const [isUploadingAll, setIsUploadingAll] = useState(false);
 
   const addSlot = () => {
@@ -68,6 +66,61 @@ function AdminUpload() {
     setSlots((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
   };
 
+  const splitSlotsForSeparatePdfs = (
+    currentSlots: UploadSlot[],
+  ): UploadSlot[] => {
+    const result: UploadSlot[] = [];
+    for (const slot of currentSlots) {
+      if (slot.files.length === 0) {
+        result.push(slot);
+        continue;
+      }
+      const pdfs = slot.files.filter(
+        (f) =>
+          f.name.toLowerCase().endsWith(".pdf") || f.type === "application/pdf",
+      );
+      const nonPdfs = slot.files.filter(
+        (f) =>
+          !f.name.toLowerCase().endsWith(".pdf") &&
+          f.type !== "application/pdf",
+      );
+
+      if (pdfs.length > 1) {
+        // First PDF stays in this slot
+        const firstPdf = pdfs[0];
+        const name1 =
+          slot.customerName.trim() || firstPdf.name.replace(/\.[^/.]+$/, "");
+        result.push({
+          ...slot,
+          files: [firstPdf, ...nonPdfs],
+          customerName: name1,
+        });
+
+        // Each subsequent PDF gets a separate project slot
+        for (let i = 1; i < pdfs.length; i++) {
+          const p = pdfs[i];
+          const nameI = p.name.replace(/\.[^/.]+$/, "");
+          result.push({
+            id: safeRandomUUID(),
+            files: [p],
+            customerName: nameI,
+            status: "idle",
+          });
+        }
+      } else {
+        result.push(slot);
+      }
+    }
+    return result;
+  };
+
+  const handleToggleSeparateProjects = (checked: boolean) => {
+    setCreateSeparateProjects(checked);
+    if (checked) {
+      setSlots((prev) => splitSlotsForSeparatePdfs(prev));
+    }
+  };
+
   const handleFiles = (targetSlotId: string, files: File[]) => {
     if (!files.length) return;
 
@@ -80,52 +133,71 @@ function AdminUpload() {
         !f.name.toLowerCase().endsWith(".pdf") && f.type !== "application/pdf",
     );
 
-    if (bulkUploadMode && pdfs.length > 1) {
+    if (createSeparateProjects && (pdfs.length > 0 || nonPdfs.length > 0)) {
       setSlots((prev) => {
         const targetIndex = prev.findIndex((s) => s.id === targetSlotId);
         if (targetIndex < 0) return prev;
 
         const updated = [...prev];
         const targetSlot = updated[targetIndex];
-        const isTargetEmpty = targetSlot.files.length === 0;
+        const combinedFiles = [...targetSlot.files, ...files];
 
-        let pdfIndex = 0;
-        if (isTargetEmpty) {
-          const firstPdf = pdfs[0];
-          const extractedName =
+        const allPdfs = combinedFiles.filter(
+          (f) =>
+            f.name.toLowerCase().endsWith(".pdf") ||
+            f.type === "application/pdf",
+        );
+        const allNonPdfs = combinedFiles.filter(
+          (f) =>
+            !f.name.toLowerCase().endsWith(".pdf") &&
+            f.type !== "application/pdf",
+        );
+
+        if (allPdfs.length > 1) {
+          const firstPdf = allPdfs[0];
+          const name1 =
             targetSlot.customerName.trim() ||
-            firstPdf.name.replace(/\.pdf$/i, "");
+            firstPdf.name.replace(/\.[^/.]+$/, "");
           updated[targetIndex] = {
             ...targetSlot,
-            files: [firstPdf, ...nonPdfs],
-            customerName: extractedName,
+            files: [firstPdf, ...allNonPdfs],
+            customerName: name1,
             status: "idle",
             errorMsg: "",
           };
-          pdfIndex = 1;
+
+          const newSlots: UploadSlot[] = [];
+          for (let i = 1; i < allPdfs.length; i++) {
+            const p = allPdfs[i];
+            const nameI = p.name.replace(/\.[^/.]+$/, "");
+            newSlots.push({
+              id: safeRandomUUID(),
+              files: [p],
+              customerName: nameI,
+              status: "idle",
+            });
+          }
+          updated.splice(targetIndex + 1, 0, ...newSlots);
+          return updated;
         } else {
-          updated[targetIndex] = { ...targetSlot, errorMsg: "" };
-        }
-
-        const newSlots: UploadSlot[] = [];
-        for (let i = pdfIndex; i < pdfs.length; i++) {
-          const f = pdfs[i];
-          const extractedName = f.name.replace(/\.pdf$/i, "");
-          newSlots.push({
-            id: crypto.randomUUID(),
-            files: [f],
-            customerName: extractedName,
+          let name = targetSlot.customerName;
+          if (!name.trim() && combinedFiles.length > 0) {
+            name = combinedFiles[0].name.replace(/\.[^/.]+$/, "");
+          }
+          updated[targetIndex] = {
+            ...targetSlot,
+            files: combinedFiles,
+            customerName: name,
+            errorMsg: "",
             status: "idle",
-          });
+          };
+          return updated;
         }
-
-        updated.splice(targetIndex + 1, 0, ...newSlots);
-        return updated;
       });
       return;
     }
 
-    // Default mode: append all selected files (PDFs + images + docs) to target slot
+    // Default mode (unchecked): append all selected files to target slot
     setSlots((prev) =>
       prev.map((s) => {
         if (s.id !== targetSlotId) return s;
@@ -178,7 +250,7 @@ function AdminUpload() {
     if (slot.files.length === 0) return;
     updateSlot(slot.id, { status: "uploading", errorMsg: "" });
     try {
-      // Process all files concurrently (PDFs load instantly, Word docs convert in parallel)
+      // Process all files concurrently
       const processedFiles = await Promise.all(
         slot.files.map(async (f) => {
           const lower = f.name.toLowerCase();
@@ -222,6 +294,16 @@ function AdminUpload() {
   );
   const readyCount = readySlots.length;
 
+  const createProjectsButtonText = isUploadingAll
+    ? readyCount > 1
+      ? "Creating Projects..."
+      : "Creating Project..."
+    : !createSeparateProjects
+      ? "Create 1 Project"
+      : readyCount <= 1
+        ? "Create 1 Project"
+        : `Create ${readyCount} Projects`;
+
   const uploadAllReady = async () => {
     if (readyCount === 0 || isUploadingAll) return;
     setIsUploadingAll(true);
@@ -254,19 +336,19 @@ function AdminUpload() {
             </div>
           </div>
 
-          {/* Controls: Bulk Toggle + Progress & Dynamic Create Button */}
+          {/* Controls: Separate Projects Toggle + Progress & Dynamic Create Button */}
           <div className="flex flex-wrap items-center gap-3">
-            {/* Bulk Upload Toggle with Exact User Label */}
+            {/* Checkbox with Exact User Required Label */}
             <label className="inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors select-none">
               <input
                 type="checkbox"
-                checked={bulkUploadMode}
-                onChange={(e) => setBulkUploadMode(e.target.checked)}
+                checked={createSeparateProjects}
+                onChange={(e) => handleToggleSeparateProjects(e.target.checked)}
                 className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 accent-blue-600 cursor-pointer"
               />
-              <span className="flex items-center gap-1.5 leading-tight">
+              <span className="flex items-center gap-1.5 leading-tight font-semibold">
                 <Layers className="h-4 w-4 text-blue-600 shrink-0" />
-                If multiple PDFs are selected, create multiple projects
+                Create a separate project for each PDF
               </span>
             </label>
 
@@ -292,7 +374,7 @@ function AdminUpload() {
                     Projects...
                   </>
                 ) : (
-                  `Create ${readyCount === 1 ? "1 Project" : `${readyCount} Projects`}`
+                  createProjectsButtonText
                 )}
               </button>
             )}
@@ -502,7 +584,13 @@ function AdminUpload() {
                 ) : (
                   <button
                     type="button"
-                    onClick={() => uploadProject(slot)}
+                    onClick={() => {
+                      if (createSeparateProjects && readyCount > 1) {
+                        uploadAllReady();
+                      } else {
+                        uploadProject(slot);
+                      }
+                    }}
                     disabled={
                       slot.files.length === 0 || slot.status === "uploading"
                     }
@@ -514,7 +602,7 @@ function AdminUpload() {
                         Creating...
                       </>
                     ) : (
-                      "Create Project"
+                      createProjectsButtonText
                     )}
                   </button>
                 )}
