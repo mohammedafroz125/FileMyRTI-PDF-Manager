@@ -1724,7 +1724,11 @@ function Index() {
       const pageNum = pos + 1;
 
       if (entry.type === "original-page") {
-        const file = originalFiles[entry.originalId];
+        let file = originalFiles[entry.originalId];
+        if (!file && originals.length > 0) {
+          file = originals[0].file;
+          originalFiles[entry.originalId] = file;
+        }
         if (!file) {
           const origObj = originalsById.get(entry.originalId);
           const docName = origObj?.name ? ` ("${origObj.name}")` : "";

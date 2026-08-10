@@ -193,12 +193,22 @@ export async function mergeByPlan(
   // 3. Cache embedded image resources for reuse across pages (deduplication)
   const imageCache = new Map<string, PDFImage>();
   const getOrEmbedImage = async (item: MergeItem): Promise<PDFImage> => {
+    if (!item || !item.file) {
+      throw new Error(`Item file reference is missing for "${item?.name ?? "unknown"}".`);
+    }
     const key = `${item.id}-${item.file.name}-${item.file.size}`;
     let img = imageCache.get(key);
     if (img) return img;
 
     const { bytes, isPng } = await getOptimizedImageBytes(item.file);
+    if (!bytes || bytes.byteLength === 0) {
+      throw new Error(`Image file "${item.file.name}" is empty (0 bytes).`);
+    }
+
     img = isPng ? await out.embedPng(bytes) : await out.embedJpg(bytes);
+    if (!img) {
+      throw new Error(`Failed to embed image "${item.file.name}" into PDF.`);
+    }
     imageCache.set(key, img);
     return img;
   };
@@ -214,21 +224,29 @@ export async function mergeByPlan(
     const pHeight = page.getHeight();
 
     for (const sticker of stickers) {
+      if (!sticker || !sticker.imageDataUrl) continue;
       try {
         let img = stickerImageCache.get(sticker.imageDataUrl);
         if (!img) {
           const parts = sticker.imageDataUrl.split(",");
+          if (parts.length < 2) continue;
           const mimeStr = parts[0] ?? "";
           const base64Data = parts[1] ?? "";
+          if (!base64Data.trim()) continue;
+
           const binaryStr = atob(base64Data);
           const bytes = new Uint8Array(binaryStr.length);
           for (let i = 0; i < binaryStr.length; i++) {
             bytes[i] = binaryStr.charCodeAt(i);
           }
+          if (bytes.byteLength === 0) continue;
+
           const isPng = mimeStr.includes("png");
           img = isPng ? await out.embedPng(bytes) : await out.embedJpg(bytes);
-          stickerImageCache.set(sticker.imageDataUrl, img);
+          if (img) stickerImageCache.set(sticker.imageDataUrl, img);
         }
+
+        if (!img) continue; // CRITICAL: Skip if img is null/undefined to prevent page.drawImage assertion crash!
 
         const drawW = (sticker.width / 100) * pWidth;
         const drawH = (sticker.height / 100) * pHeight;
