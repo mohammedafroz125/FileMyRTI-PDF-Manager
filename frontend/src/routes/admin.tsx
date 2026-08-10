@@ -39,6 +39,18 @@ type UploadSlot = {
 const ALLOWED_ACCEPT =
   "application/pdf,.pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg,image/jpg,image/webp,.jpg,.jpeg,.png,.webp";
 
+function isSupportedFile(f: File): boolean {
+  const lower = f.name.toLowerCase();
+  return (
+    lower.endsWith(".pdf") ||
+    lower.endsWith(".doc") ||
+    lower.endsWith(".docx") ||
+    f.type === "application/pdf" ||
+    f.type.includes("word") ||
+    f.type.startsWith("image/")
+  );
+}
+
 function AdminUpload() {
   useEffect(() => {
     document.title = "FileMyRTI PDF Manager";
@@ -160,27 +172,27 @@ function AdminUpload() {
     }
   };
 
-  // Extract all PDFs across slots for separate project mode
-  const allAttachedPdfs: { file: File; customerName: string; slotId: string }[] =
+  // Extract all supported files (.pdf, .doc, .docx, images) across all slots
+  const allAttachedFiles: { file: File; customerName: string; slotId: string }[] =
     [];
   for (const s of slots) {
     for (const f of s.files) {
-      const lower = f.name.toLowerCase();
-      if (lower.endsWith(".pdf") || f.type === "application/pdf") {
+      if (isSupportedFile(f)) {
         const projName =
           s.customerName.trim() || f.name.replace(/\.[^/.]+$/, "");
-        allAttachedPdfs.push({ file: f, customerName: projName, slotId: s.id });
+        allAttachedFiles.push({ file: f, customerName: projName, slotId: s.id });
       }
     }
   }
-  const pdfCount = allAttachedPdfs.length;
+  const supportedFileCount = allAttachedFiles.length;
 
-  // Multiple project creation logic: Creates ONE independent project for EACH PDF
+  // Multiple project creation logic: Creates ONE independent project for EACH supported file
   const createMultipleProjects = async () => {
-    if (!createSeparateProjects || pdfCount === 0 || isUploadingAll) return;
+    if (!createSeparateProjects || supportedFileCount === 0 || isUploadingAll)
+      return;
     setIsUploadingAll(true);
     try {
-      const affectedSlotIds = new Set(allAttachedPdfs.map((p) => p.slotId));
+      const affectedSlotIds = new Set(allAttachedFiles.map((p) => p.slotId));
       for (const slotId of affectedSlotIds) {
         updateSlot(slotId, {
           status: "uploading",
@@ -188,15 +200,28 @@ function AdminUpload() {
         });
       }
 
-      for (let i = 0; i < allAttachedPdfs.length; i++) {
-        const item = allAttachedPdfs[i];
+      for (let i = 0; i < allAttachedFiles.length; i++) {
+        const item = allAttachedFiles[i];
         const f = item.file;
-        console.log("CALLING optimizePdfBlob");
-        const blob = await optimizePdfBlob(f, f.name);
-        const pdfFile = new File([blob], f.name, { type: "application/pdf" });
+        const lower = f.name.toLowerCase();
+        const isWord =
+          lower.endsWith(".doc") ||
+          lower.endsWith(".docx") ||
+          f.type.includes("word");
+        const isPdf = lower.endsWith(".pdf") || f.type === "application/pdf";
+
+        let processedFile: File = f;
+        if (isWord) {
+          processedFile = await convertWordToPdfOnServer(f, () => {});
+        } else if (isPdf) {
+          console.log("CALLING optimizePdfBlob");
+          const blob = await optimizePdfBlob(f, f.name);
+          processedFile = new File([blob], f.name, { type: "application/pdf" });
+        }
+
         const nameToUse =
           item.customerName.trim() || f.name.replace(/\.[^/.]+$/, "");
-        await createProjectWithOriginals(nameToUse, [pdfFile]);
+        await createProjectWithOriginals(nameToUse, [processedFile]);
       }
 
       for (const slotId of affectedSlotIds) {
@@ -205,13 +230,7 @@ function AdminUpload() {
       navigate({ to: "/" });
     } catch (err) {
       for (const slot of slots) {
-        if (
-          slot.files.some(
-            (f) =>
-              f.name.toLowerCase().endsWith(".pdf") ||
-              f.type === "application/pdf",
-          )
-        ) {
+        if (slot.files.some(isSupportedFile)) {
           updateSlot(slot.id, {
             status: "error",
             errorMsg: (err as Error).message,
@@ -224,7 +243,7 @@ function AdminUpload() {
   };
 
   const isMultipleProjectsEnabled =
-    createSeparateProjects && pdfCount > 0 && !isUploadingAll;
+    createSeparateProjects && supportedFileCount > 0 && !isUploadingAll;
 
   return (
     <div className="min-h-screen bg-slate-50 px-4 py-6 sm:px-8 sm:py-8">
@@ -261,7 +280,7 @@ function AdminUpload() {
               />
               <span className="flex items-center gap-1.5 leading-tight font-semibold">
                 <Layers className="h-4 w-4 text-blue-600 shrink-0" />
-                Create a separate project for each PDF
+                Create a separate project for each file
               </span>
             </label>
 
@@ -358,7 +377,7 @@ function AdminUpload() {
                         Click or drop PDFs & Images
                       </p>
                       <p className="text-[10px] text-slate-400 mt-0.5">
-                        PDF, JPG, JPEG, PNG, WEBP
+                        PDF, DOC, DOCX, JPG, PNG
                       </p>
                     </div>
                   ) : (

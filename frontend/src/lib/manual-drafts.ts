@@ -121,6 +121,14 @@ export async function deleteDraft(id: string): Promise<void> {
   await writeIndex(idx.filter((d) => d.id !== id));
 }
 
+export async function deleteAllDrafts(): Promise<void> {
+  const idx = await readIndex();
+  for (const d of idx) {
+    await del(KEY_PREFIX + d.id);
+  }
+  await writeIndex([]);
+}
+
 export function draftFileToFile(f: DraftFileBlob): File {
   return new File([f.blob], f.name, {
     type: f.type || "application/octet-stream",

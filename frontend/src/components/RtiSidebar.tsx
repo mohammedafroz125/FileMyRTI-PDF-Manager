@@ -15,7 +15,6 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   listDocuments,
   type RtiDocument,
-  type RtiStatus,
 } from "@/lib/rti-storage";
 import type { DraftSummary } from "@/lib/manual-drafts";
 
@@ -23,11 +22,13 @@ type Props = {
   activeId?: string | null;
   onSelect: (doc: RtiDocument) => void;
   onDelete: (doc: RtiDocument) => Promise<void> | void;
+  onDeleteAllPending?: () => Promise<void> | void;
   onManualEdit: () => void;
   drafts?: DraftSummary[];
   activeDraftId?: string | null;
   onSelectDraft?: (id: string) => void;
   onDeleteDraft?: (id: string) => void;
+  onDeleteAllDrafts?: () => Promise<void> | void;
   onRenameDraft?: (id: string, name: string) => void;
 };
 
@@ -35,11 +36,13 @@ export function RtiSidebar({
   activeId,
   onSelect,
   onDelete,
+  onDeleteAllPending,
   onManualEdit,
   drafts = [],
   activeDraftId = null,
   onSelectDraft,
   onDeleteDraft,
+  onDeleteAllDrafts,
   onRenameDraft,
 }: Props) {
   const [docs, setDocs] = useState<RtiDocument[]>([]);
@@ -84,6 +87,44 @@ export function RtiSidebar({
   const filteredDrafts = drafts.filter((d) =>
     d.name.toLowerCase().includes(searchQuery.toLowerCase()),
   );
+
+  const handleDeleteAllPendingClick = async () => {
+    if (filteredDocs.length === 0) return;
+    if (
+      confirm(
+        `Delete ALL ${filteredDocs.length} project(s) in Pending Queue? This action cannot be undone.`,
+      )
+    ) {
+      const docsToDelete = [...docs];
+      setDocs([]);
+      if (onDeleteAllPending) {
+        await onDeleteAllPending();
+      } else {
+        for (const d of docsToDelete) {
+          await onDelete(d);
+        }
+      }
+      await refresh();
+    }
+  };
+
+  const handleDeleteAllDraftsClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (filteredDrafts.length === 0) return;
+    if (
+      confirm(
+        `Delete ALL ${filteredDrafts.length} draft(s) in Manual Drafts? This action cannot be undone.`,
+      )
+    ) {
+      if (onDeleteAllDrafts) {
+        await onDeleteAllDrafts();
+      } else if (onDeleteDraft) {
+        for (const d of filteredDrafts) {
+          onDeleteDraft(d.id);
+        }
+      }
+    }
+  };
 
   return (
     <aside className="sticky top-0 flex h-full md:h-screen w-full md:w-72 shrink-0 flex-col border-r border-border bg-slate-50">
@@ -148,6 +189,16 @@ export function RtiSidebar({
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
               Pending Queue ({filteredDocs.length})
             </span>
+            {filteredDocs.length > 0 && (
+              <button
+                type="button"
+                onClick={handleDeleteAllPendingClick}
+                className="text-[10px] font-bold text-red-600 hover:text-red-700 hover:underline px-1 py-0.5 transition-colors cursor-pointer"
+                title="Delete all projects in Pending Queue"
+              >
+                Delete All
+              </button>
+            )}
           </div>
 
           {filteredDocs.length === 0 ? (
@@ -265,29 +316,39 @@ export function RtiSidebar({
 
         {/* Manual Drafts Category */}
         <div className="space-y-1.5">
-          <button
-            type="button"
-            onClick={() => {
-              const next = !draftsExpanded;
-              setDraftsExpanded(next);
-              if (typeof window !== "undefined") {
-                localStorage.setItem("sidebar_drafts_expanded", String(next));
-              }
-            }}
-            className="flex w-full items-center justify-between px-1 py-1 rounded-md hover:bg-slate-200/50 text-left transition-colors"
-          >
-            <div className="flex items-center gap-1.5">
+          <div className="flex items-center justify-between px-1">
+            <button
+              type="button"
+              onClick={() => {
+                const next = !draftsExpanded;
+                setDraftsExpanded(next);
+                if (typeof window !== "undefined") {
+                  localStorage.setItem("sidebar_drafts_expanded", String(next));
+                }
+              }}
+              className="flex items-center gap-1.5 hover:bg-slate-200/50 rounded-md px-1 py-0.5 transition-colors text-left"
+            >
               <FileEdit className="h-3.5 w-3.5 text-slate-400" />
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                 Manual Drafts ({filteredDrafts.length})
               </span>
-            </div>
-            {draftsExpanded ? (
-              <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
-            ) : (
-              <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+              {draftsExpanded ? (
+                <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+              )}
+            </button>
+            {filteredDrafts.length > 0 && (
+              <button
+                type="button"
+                onClick={handleDeleteAllDraftsClick}
+                className="text-[10px] font-bold text-red-600 hover:text-red-700 hover:underline px-1 py-0.5 transition-colors cursor-pointer"
+                title="Delete all manual drafts"
+              >
+                Delete All
+              </button>
             )}
-          </button>
+          </div>
 
           {draftsExpanded && (
             <>

@@ -67,6 +67,7 @@ import {
   deleteDocumentData,
   downloadFromPath,
   getDocument,
+  listDocuments,
   listMobileUploads,
   listOriginals,
   loadItemFile,
@@ -83,6 +84,7 @@ import {
 } from "@/lib/rti-storage";
 import {
   deleteDraft as deleteDraftStore,
+  deleteAllDrafts as deleteAllDraftsStore,
   listDrafts,
   loadDraft,
   reconcileIndex,
@@ -1816,6 +1818,42 @@ function Index() {
     })();
   };
 
+  const deleteAllPendingProjects = async () => {
+    try {
+      const allDocs = await listDocuments();
+      for (const doc of allDocs) {
+        delete projectCacheRef.current[doc.id];
+        if (activeDoc?.id === doc.id) {
+          setActiveDoc(null);
+          resetLocalState();
+          if (typeof window !== "undefined") {
+            localStorage.removeItem("active_rti_project_id");
+          }
+        }
+        await deleteDocumentData(doc.id);
+      }
+      toast.success("Deleted all projects from Pending Queue");
+    } catch (e) {
+      toast.error(`Failed to delete pending projects: ${(e as Error).message}`);
+    }
+  };
+
+  const deleteAllDrafts = async () => {
+    try {
+      for (const d of drafts) {
+        if (activeDoc?.id === d.id) {
+          setActiveDoc(null);
+          resetLocalState();
+        }
+      }
+      await deleteAllDraftsStore();
+      await refreshDrafts();
+      toast.success("Deleted all Manual Drafts");
+    } catch (e) {
+      toast.error(`Failed to delete drafts: ${(e as Error).message}`);
+    }
+  };
+
   const canGenerate =
     timeline.length > 0 &&
     status.kind !== "working" &&
@@ -1976,6 +2014,7 @@ function Index() {
             setMobileView("workspace");
           }}
           onDelete={deleteProject}
+          onDeleteAllPending={deleteAllPendingProjects}
           onManualEdit={() => {
             createNewDraft([]);
             setMobileView("workspace");
@@ -1987,6 +2026,7 @@ function Index() {
             setMobileView("workspace");
           }}
           onDeleteDraft={deleteDraft}
+          onDeleteAllDrafts={deleteAllDrafts}
           onRenameDraft={renameDraft}
         />
       </div>
