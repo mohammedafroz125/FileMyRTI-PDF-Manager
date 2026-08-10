@@ -9,7 +9,6 @@ import {
   X,
   ArrowLeft,
   Layers,
-  Sparkles,
   ChevronUp,
   ChevronDown,
   FileText,
@@ -51,6 +50,8 @@ function AdminUpload() {
   const [createSeparateProjects, setCreateSeparateProjects] = useState(false);
   const [isUploadingAll, setIsUploadingAll] = useState(false);
 
+  const navigate = useNavigate();
+
   const addSlot = () => {
     setSlots((prev) => [
       ...prev,
@@ -66,138 +67,8 @@ function AdminUpload() {
     setSlots((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
   };
 
-  const splitSlotsForSeparatePdfs = (
-    currentSlots: UploadSlot[],
-  ): UploadSlot[] => {
-    const result: UploadSlot[] = [];
-    for (const slot of currentSlots) {
-      if (slot.files.length === 0) {
-        result.push(slot);
-        continue;
-      }
-      const pdfs = slot.files.filter(
-        (f) =>
-          f.name.toLowerCase().endsWith(".pdf") || f.type === "application/pdf",
-      );
-      const nonPdfs = slot.files.filter(
-        (f) =>
-          !f.name.toLowerCase().endsWith(".pdf") &&
-          f.type !== "application/pdf",
-      );
-
-      if (pdfs.length > 1) {
-        // First PDF stays in this slot
-        const firstPdf = pdfs[0];
-        const name1 =
-          slot.customerName.trim() || firstPdf.name.replace(/\.[^/.]+$/, "");
-        result.push({
-          ...slot,
-          files: [firstPdf, ...nonPdfs],
-          customerName: name1,
-        });
-
-        // Each subsequent PDF gets a separate project slot
-        for (let i = 1; i < pdfs.length; i++) {
-          const p = pdfs[i];
-          const nameI = p.name.replace(/\.[^/.]+$/, "");
-          result.push({
-            id: safeRandomUUID(),
-            files: [p],
-            customerName: nameI,
-            status: "idle",
-          });
-        }
-      } else {
-        result.push(slot);
-      }
-    }
-    return result;
-  };
-
-  const handleToggleSeparateProjects = (checked: boolean) => {
-    setCreateSeparateProjects(checked);
-    if (checked) {
-      setSlots((prev) => splitSlotsForSeparatePdfs(prev));
-    }
-  };
-
   const handleFiles = (targetSlotId: string, files: File[]) => {
     if (!files.length) return;
-
-    const pdfs = files.filter(
-      (f) =>
-        f.name.toLowerCase().endsWith(".pdf") || f.type === "application/pdf",
-    );
-    const nonPdfs = files.filter(
-      (f) =>
-        !f.name.toLowerCase().endsWith(".pdf") && f.type !== "application/pdf",
-    );
-
-    if (createSeparateProjects && (pdfs.length > 0 || nonPdfs.length > 0)) {
-      setSlots((prev) => {
-        const targetIndex = prev.findIndex((s) => s.id === targetSlotId);
-        if (targetIndex < 0) return prev;
-
-        const updated = [...prev];
-        const targetSlot = updated[targetIndex];
-        const combinedFiles = [...targetSlot.files, ...files];
-
-        const allPdfs = combinedFiles.filter(
-          (f) =>
-            f.name.toLowerCase().endsWith(".pdf") ||
-            f.type === "application/pdf",
-        );
-        const allNonPdfs = combinedFiles.filter(
-          (f) =>
-            !f.name.toLowerCase().endsWith(".pdf") &&
-            f.type !== "application/pdf",
-        );
-
-        if (allPdfs.length > 1) {
-          const firstPdf = allPdfs[0];
-          const name1 =
-            targetSlot.customerName.trim() ||
-            firstPdf.name.replace(/\.[^/.]+$/, "");
-          updated[targetIndex] = {
-            ...targetSlot,
-            files: [firstPdf, ...allNonPdfs],
-            customerName: name1,
-            status: "idle",
-            errorMsg: "",
-          };
-
-          const newSlots: UploadSlot[] = [];
-          for (let i = 1; i < allPdfs.length; i++) {
-            const p = allPdfs[i];
-            const nameI = p.name.replace(/\.[^/.]+$/, "");
-            newSlots.push({
-              id: safeRandomUUID(),
-              files: [p],
-              customerName: nameI,
-              status: "idle",
-            });
-          }
-          updated.splice(targetIndex + 1, 0, ...newSlots);
-          return updated;
-        } else {
-          let name = targetSlot.customerName;
-          if (!name.trim() && combinedFiles.length > 0) {
-            name = combinedFiles[0].name.replace(/\.[^/.]+$/, "");
-          }
-          updated[targetIndex] = {
-            ...targetSlot,
-            files: combinedFiles,
-            customerName: name,
-            errorMsg: "",
-            status: "idle",
-          };
-          return updated;
-        }
-      });
-      return;
-    }
-
-    // Default mode (unchecked): append all selected files to target slot
     setSlots((prev) =>
       prev.map((s) => {
         if (s.id !== targetSlotId) return s;
@@ -246,11 +117,11 @@ function AdminUpload() {
     );
   };
 
+  // Normal creation logic: Creates ONE project containing all files attached to that slot card
   const uploadProject = async (slot: UploadSlot) => {
     if (slot.files.length === 0) return;
     updateSlot(slot.id, { status: "uploading", errorMsg: "" });
     try {
-      // Process all files concurrently
       const processedFiles = await Promise.all(
         slot.files.map(async (f) => {
           const lower = f.name.toLowerCase();
@@ -289,29 +160,71 @@ function AdminUpload() {
     }
   };
 
-  const readySlots = slots.filter(
-    (s) => s.files.length > 0 && s.status !== "done",
-  );
-  const readyCount = readySlots.length;
+  // Extract all PDFs across slots for separate project mode
+  const allAttachedPdfs: { file: File; customerName: string; slotId: string }[] =
+    [];
+  for (const s of slots) {
+    for (const f of s.files) {
+      const lower = f.name.toLowerCase();
+      if (lower.endsWith(".pdf") || f.type === "application/pdf") {
+        const projName =
+          s.customerName.trim() || f.name.replace(/\.[^/.]+$/, "");
+        allAttachedPdfs.push({ file: f, customerName: projName, slotId: s.id });
+      }
+    }
+  }
+  const pdfCount = allAttachedPdfs.length;
 
-  const createProjectsButtonText = isUploadingAll
-    ? readyCount > 1
-      ? "Creating Projects..."
-      : "Creating Project..."
-    : !createSeparateProjects
-      ? "Create 1 Project"
-      : readyCount <= 1
-        ? "Create 1 Project"
-        : `Create ${readyCount} Projects`;
-
-  const uploadAllReady = async () => {
-    if (readyCount === 0 || isUploadingAll) return;
+  // Multiple project creation logic: Creates ONE independent project for EACH PDF
+  const createMultipleProjects = async () => {
+    if (!createSeparateProjects || pdfCount === 0 || isUploadingAll) return;
     setIsUploadingAll(true);
-    await Promise.all(readySlots.map((slot) => uploadProject(slot)));
-    setIsUploadingAll(false);
+    try {
+      const affectedSlotIds = new Set(allAttachedPdfs.map((p) => p.slotId));
+      for (const slotId of affectedSlotIds) {
+        updateSlot(slotId, {
+          status: "uploading",
+          errorMsg: "Creating multiple projects...",
+        });
+      }
+
+      for (let i = 0; i < allAttachedPdfs.length; i++) {
+        const item = allAttachedPdfs[i];
+        const f = item.file;
+        console.log("CALLING optimizePdfBlob");
+        const blob = await optimizePdfBlob(f, f.name);
+        const pdfFile = new File([blob], f.name, { type: "application/pdf" });
+        const nameToUse =
+          item.customerName.trim() || f.name.replace(/\.[^/.]+$/, "");
+        await createProjectWithOriginals(nameToUse, [pdfFile]);
+      }
+
+      for (const slotId of affectedSlotIds) {
+        updateSlot(slotId, { status: "done", errorMsg: "" });
+      }
+      navigate({ to: "/" });
+    } catch (err) {
+      for (const slot of slots) {
+        if (
+          slot.files.some(
+            (f) =>
+              f.name.toLowerCase().endsWith(".pdf") ||
+              f.type === "application/pdf",
+          )
+        ) {
+          updateSlot(slot.id, {
+            status: "error",
+            errorMsg: (err as Error).message,
+          });
+        }
+      }
+    } finally {
+      setIsUploadingAll(false);
+    }
   };
 
-  const navigate = useNavigate();
+  const isMultipleProjectsEnabled =
+    createSeparateProjects && pdfCount > 0 && !isUploadingAll;
 
   return (
     <div className="min-h-screen bg-slate-50 px-4 py-6 sm:px-8 sm:py-8">
@@ -336,14 +249,14 @@ function AdminUpload() {
             </div>
           </div>
 
-          {/* Controls: Separate Projects Toggle + Progress & Dynamic Create Button */}
+          {/* Controls: Checkbox & Create Multiple Projects Button */}
           <div className="flex flex-wrap items-center gap-3">
-            {/* Checkbox with Exact User Required Label */}
+            {/* Checkbox with Exact Required Label */}
             <label className="inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors select-none">
               <input
                 type="checkbox"
                 checked={createSeparateProjects}
-                onChange={(e) => handleToggleSeparateProjects(e.target.checked)}
+                onChange={(e) => setCreateSeparateProjects(e.target.checked)}
                 className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 accent-blue-600 cursor-pointer"
               />
               <span className="flex items-center gap-1.5 leading-tight font-semibold">
@@ -352,32 +265,22 @@ function AdminUpload() {
               </span>
             </label>
 
-            {/* Ready Progress Indicator */}
-            {slots.length > 0 && (
-              <span className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 border border-blue-200/60">
-                <Sparkles className="h-3.5 w-3.5" />
-                {readyCount} of {slots.length} Projects Ready
-              </span>
-            )}
-
-            {/* Dynamic Bulk Create Button */}
-            {readyCount > 0 && (
-              <button
-                type="button"
-                onClick={uploadAllReady}
-                disabled={isUploadingAll}
-                className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-xs sm:text-sm font-bold text-white shadow hover:bg-blue-700 transition-colors disabled:opacity-50"
-              >
-                {isUploadingAll ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" /> Creating
-                    Projects...
-                  </>
-                ) : (
-                  createProjectsButtonText
-                )}
-              </button>
-            )}
+            {/* Top-Right Create Multiple Projects Button */}
+            <button
+              type="button"
+              onClick={createMultipleProjects}
+              disabled={!isMultipleProjectsEnabled}
+              className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-xs sm:text-sm font-bold text-white shadow hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isUploadingAll ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" /> Creating
+                  Projects...
+                </>
+              ) : (
+                "Create Multiple Projects"
+              )}
+            </button>
           </div>
         </div>
 
@@ -565,7 +468,7 @@ function AdminUpload() {
                 )}
               </div>
 
-              {/* Card Footer Action */}
+              {/* Card Footer Action: Normal Single-Project Creation */}
               <div className="border-t border-slate-100 p-3 bg-slate-50/30 rounded-b-xl">
                 {slot.status === "done" ? (
                   <button
@@ -584,13 +487,7 @@ function AdminUpload() {
                 ) : (
                   <button
                     type="button"
-                    onClick={() => {
-                      if (createSeparateProjects && readyCount > 1) {
-                        uploadAllReady();
-                      } else {
-                        uploadProject(slot);
-                      }
-                    }}
+                    onClick={() => uploadProject(slot)}
                     disabled={
                       slot.files.length === 0 || slot.status === "uploading"
                     }
@@ -602,7 +499,7 @@ function AdminUpload() {
                         Creating...
                       </>
                     ) : (
-                      createProjectsButtonText
+                      "Create Project"
                     )}
                   </button>
                 )}
