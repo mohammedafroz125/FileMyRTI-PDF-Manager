@@ -33,7 +33,7 @@ type UploadSlot = {
   id: string;
   files: File[];
   customerName: string;
-  duplicateCount: number;
+  duplicateCount: number | string;
   status: "idle" | "uploading" | "done" | "error";
   errorMsg?: string;
 };
@@ -174,7 +174,11 @@ function AdminUpload() {
         }),
       );
 
-      const count = Math.max(1, slot.duplicateCount || 1);
+      const parsedCount =
+        typeof slot.duplicateCount === "number"
+          ? slot.duplicateCount
+          : parseInt(slot.duplicateCount, 10);
+      const count = Math.max(1, isNaN(parsedCount) ? 1 : parsedCount);
       const baseName =
         slot.customerName.trim() || slot.files[0].name.replace(/\.[^/.]+$/, "");
 
@@ -390,10 +394,17 @@ function AdminUpload() {
                     type="number"
                     min={1}
                     max={100}
-                    value={slot.duplicateCount || 1}
+                    value={slot.duplicateCount}
                     onChange={(e) => {
-                      const val = Math.max(1, parseInt(e.target.value, 10) || 1);
-                      updateSlot(slot.id, { duplicateCount: val });
+                      updateSlot(slot.id, { duplicateCount: e.target.value });
+                    }}
+                    onBlur={(e) => {
+                      const parsed = parseInt(e.target.value, 10);
+                      if (isNaN(parsed) || parsed < 1) {
+                        updateSlot(slot.id, { duplicateCount: 1 });
+                      } else {
+                        updateSlot(slot.id, { duplicateCount: parsed });
+                      }
                     }}
                     disabled={
                       slot.status === "uploading" || slot.status === "done"
@@ -528,9 +539,16 @@ function AdminUpload() {
                   <div className="flex items-center gap-1.5 text-xs text-emerald-600 font-bold">
                     <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
                     <span>
-                      {slot.duplicateCount > 1
-                        ? `${slot.duplicateCount} Projects Created!`
-                        : "Project Created!"}
+                      {(() => {
+                        const cnt =
+                          typeof slot.duplicateCount === "number"
+                            ? slot.duplicateCount
+                            : parseInt(slot.duplicateCount, 10);
+                        const validCnt = Math.max(1, isNaN(cnt) ? 1 : cnt);
+                        return validCnt > 1
+                          ? `${validCnt} Projects Created!`
+                          : "Project Created!";
+                      })()}
                     </span>
                   </div>
                 )}
@@ -567,11 +585,11 @@ function AdminUpload() {
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />{" "}
                         Creating...
                       </>
-                    ) : slot.duplicateCount > 1 ? (
-                      `Create ${slot.duplicateCount} Duplicate Projects`
-                    ) : (
-                      "Create Project"
-                    )}
+                    ) : (() => {
+                        const parsed = typeof slot.duplicateCount === "number" ? slot.duplicateCount : parseInt(slot.duplicateCount, 10);
+                        const displayCount = Math.max(1, isNaN(parsed) ? 1 : parsed);
+                        return displayCount > 1 ? `Create ${displayCount} Duplicate Projects` : "Create Project";
+                      })()}
                   </button>
                 )}
               </div>

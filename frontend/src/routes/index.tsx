@@ -1709,38 +1709,63 @@ function Index() {
     });
   };
 
+  const buildPlanEntries = (
+    entries: SavedTimelineEntry[],
+  ): { originalFiles: Record<string, File>; plan: PlanEntry[] } => {
+    const originalFiles: Record<string, File> = {};
+    for (const o of originals) {
+      if (o.file) originalFiles[o.id] = o.file;
+    }
+
+    const plan: PlanEntry[] = [];
+    for (let pos = 0; pos < entries.length; pos++) {
+      const entry = entries[pos];
+      const pageNum = pos + 1;
+
+      if (entry.type === "original-page") {
+        const file = originalFiles[entry.originalId];
+        if (!file) {
+          const origObj = originalsById.get(entry.originalId);
+          const docName = origObj?.name ? ` ("${origObj.name}")` : "";
+          throw new Error(
+            `Page ${pageNum}${docName}: Original PDF file reference is missing or still loading.`,
+          );
+        }
+        plan.push({
+          entryId: entry.id,
+          kind: "original-page",
+          originalId: entry.originalId,
+          pageIndex: entry.pageIndex,
+          rotation: entry.rotation,
+          stickers: entry.stickers,
+        });
+      } else {
+        const item = itemById.get(entry.itemId);
+        if (!item || !item.file) {
+          const nameStr = item?.name ? ` ("${item.name}")` : "";
+          throw new Error(
+            `Page ${pageNum}${nameStr}: Item file reference is missing or unreadable.`,
+          );
+        }
+        plan.push({
+          entryId: entry.id,
+          kind: "item",
+          item,
+          pageIndex: entry.pageIndex ?? 0,
+          rotation: entry.rotation,
+          stickers: entry.stickers,
+        });
+      }
+    }
+
+    return { originalFiles, plan };
+  };
+
   const generateAndSave = async () => {
     if (!activeDoc) return;
     setStatus({ kind: "working", pct: 0, label: "Merging pages…" });
     try {
-      const originalFiles: Record<string, File> = {};
-      for (const o of originals) originalFiles[o.id] = o.file;
-
-      const plan: PlanEntry[] = timeline
-        .map<PlanEntry | null>((entry) => {
-          if (entry.type === "original-page") {
-            if (!originalFiles[entry.originalId]) return null;
-            return {
-              entryId: entry.id,
-              kind: "original-page",
-              originalId: entry.originalId,
-              pageIndex: entry.pageIndex,
-              rotation: entry.rotation,
-              stickers: entry.stickers,
-            };
-          }
-          const item = itemById.get(entry.itemId);
-          if (!item) return null;
-          return {
-            entryId: entry.id,
-            kind: "item",
-            item,
-            pageIndex: entry.pageIndex ?? 0,
-            rotation: entry.rotation,
-            stickers: entry.stickers,
-          };
-        })
-        .filter((x): x is PlanEntry => x !== null);
+      const { originalFiles, plan } = buildPlanEntries(timeline);
 
       let blob = await mergeByPlan(originalFiles, plan, (pct) =>
         setStatus({ kind: "working", pct, label: "Merging pages…" }),
@@ -1966,33 +1991,7 @@ function Index() {
       label: "Preparing document for printing…",
     });
     try {
-      const originalFiles: Record<string, File> = {};
-      for (const o of originals) originalFiles[o.id] = o.file;
-      const plan: PlanEntry[] = timeline
-        .map<PlanEntry | null>((entry) => {
-          if (entry.type === "original-page") {
-            if (!originalFiles[entry.originalId]) return null;
-            return {
-              entryId: entry.id,
-              kind: "original-page",
-              originalId: entry.originalId,
-              pageIndex: entry.pageIndex,
-              rotation: entry.rotation,
-              stickers: entry.stickers,
-            };
-          }
-          const item = itemById.get(entry.itemId);
-          if (!item) return null;
-          return {
-            entryId: entry.id,
-            kind: "item",
-            item,
-            pageIndex: entry.pageIndex ?? 0,
-            rotation: entry.rotation,
-            stickers: entry.stickers,
-          };
-        })
-        .filter((x): x is PlanEntry => x !== null);
+      const { originalFiles, plan } = buildPlanEntries(timeline);
 
       const blob = await mergeByPlan(originalFiles, plan, (pct) =>
         setStatus({ kind: "working", pct, label: "Preparing print layout…" }),
@@ -2046,33 +2045,8 @@ function Index() {
     setStatus({ kind: "working", pct: 0, label: "Preparing pages…" });
     try {
       const subset = indices.map((i) => timeline[i]).filter(Boolean);
-      const originalFiles: Record<string, File> = {};
-      for (const o of originals) originalFiles[o.id] = o.file;
-      const plan: PlanEntry[] = subset
-        .map<PlanEntry | null>((entry) => {
-          if (entry.type === "original-page") {
-            if (!originalFiles[entry.originalId]) return null;
-            return {
-              entryId: entry.id,
-              kind: "original-page",
-              originalId: entry.originalId,
-              pageIndex: entry.pageIndex,
-              rotation: entry.rotation,
-              stickers: entry.stickers,
-            };
-          }
-          const item = itemById.get(entry.itemId);
-          if (!item) return null;
-          return {
-            entryId: entry.id,
-            kind: "item",
-            item,
-            pageIndex: entry.pageIndex ?? 0,
-            rotation: entry.rotation,
-            stickers: entry.stickers,
-          };
-        })
-        .filter((x): x is PlanEntry => x !== null);
+      const { originalFiles, plan } = buildPlanEntries(subset);
+
       let blob = await mergeByPlan(originalFiles, plan, (pct) =>
         setStatus({ kind: "working", pct, label: "Merging pages…" }),
       );

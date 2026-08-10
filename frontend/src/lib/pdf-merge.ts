@@ -255,27 +255,43 @@ export async function mergeByPlan(
       const key = `orig-${entry.originalId}`;
       const pageLookup = batchCopiedPagesMap.get(key);
       const page = pageLookup?.get(entry.pageIndex);
-      if (page) {
-        if (entry.rotation) {
-          page.setRotation(degrees(((entry.rotation % 360) + 360) % 360));
-        }
-        addedPage = out.addPage(page);
+      if (!page) {
+        throw new Error(
+          `Unable to resolve Page ${done + 1}: original PDF page index ${entry.pageIndex + 1} is unreadable or out of range.`,
+        );
       }
+      if (entry.rotation) {
+        page.setRotation(degrees(((entry.rotation % 360) + 360) % 360));
+      }
+      addedPage = out.addPage(page);
     } else {
       const it = entry.item;
+      if (!it || !it.file) {
+        throw new Error(
+          `Unable to resolve Page ${done + 1}: item file reference is missing.`,
+        );
+      }
       if (it.kind === "pdf") {
         const key = `item-${it.id}`;
         const pageLookup = batchCopiedPagesMap.get(key);
         const pageIndex = entry.pageIndex ?? 0;
         const page = pageLookup?.get(pageIndex);
-        if (page) {
-          if (entry.rotation) {
-            page.setRotation(degrees(((entry.rotation % 360) + 360) % 360));
-          }
-          addedPage = out.addPage(page);
+        if (!page) {
+          throw new Error(
+            `Unable to resolve Page ${done + 1}: item "${it.name}" page index ${pageIndex + 1} is unreadable or out of range.`,
+          );
         }
+        if (entry.rotation) {
+          page.setRotation(degrees(((entry.rotation % 360) + 360) % 360));
+        }
+        addedPage = out.addPage(page);
       } else {
         const img = await getOrEmbedImage(it);
+        if (!img) {
+          throw new Error(
+            `Unable to resolve Page ${done + 1}: image file "${it.name}" could not be embedded.`,
+          );
+        }
         const page = out.addPage([img.width, img.height]);
         page.drawImage(img, {
           x: 0,
