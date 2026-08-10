@@ -322,15 +322,84 @@ export class SupabaseStorageAdapter implements IStorageProvider {
     filename: string,
     mime: string,
   ): Promise<File> {
+    // 1. Try local IndexedDB first
     try {
-      return await this.fallbackAdapter.downloadFromPath(path, filename, mime);
+      const localFile = await this.fallbackAdapter.downloadFromPath(path, filename, mime);
+      if (localFile && localFile.size > 0) return localFile;
     } catch {
-      const { data, error } = await supabase.storage
-        .from(BUCKET)
-        .download(path);
-      if (error) throw error;
-      return new File([data], filename, { type: mime });
+      /* ignore local error and fallback to cloud */
     }
+
+    // 2. Try exact path in Supabase Cloud Storage
+    try {
+      const { data, error } = await supabase.storage.from(BUCKET).download(path);
+      if (!error && data && data.size > 0) {
+        return new File([data], filename, { type: mime });
+      }
+    } catch {
+      /* ignore */
+    }
+
+    // 3. Smart Cloud Search: Extract docId from path if available (e.g. "idb_orig_docId_..." or "docId/...")
+    const match = path.match(/([a-f0-9-]{36})/i);
+    const docId = match ? match[1] : null;
+
+    if (docId) {
+      // Search in docId/originals and docId/items
+      for (const folder of [`${docId}/originals`, `${docId}/items`]) {
+        try {
+          const { data: files } = await supabase.storage.from(BUCKET).list(folder, { limit: 100 });
+          if (files && files.length > 0) {
+            // Match file by clean name
+            const cleanTarget = filename.toLowerCase().replace(/\.[^/.]+$/, "");
+            const found =
+              files.find((f) => {
+                const fLower = f.name.toLowerCase();
+                return (
+                  fLower.includes(cleanTarget) ||
+                  cleanTarget.includes(fLower.replace(/\.[^/.]+$/, ""))
+                );
+              }) || files[0]; // fallback to first file if only 1 file exists
+
+            if (found) {
+              const { data: blob } = await supabase.storage
+                .from(BUCKET)
+                .download(`${folder}/${found.name}`);
+              if (blob && blob.size > 0) {
+                return new File([blob], filename, { type: mime });
+              }
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+
+    // 4. Try incoming folder fallback
+    try {
+      const cleanTarget = filename.toLowerCase().replace(/\.[^/.]+$/, "");
+      const { data: incomingFiles } = await supabase.storage
+        .from(BUCKET)
+        .list("_incoming", { limit: 100 });
+      if (incomingFiles && incomingFiles.length > 0) {
+        const found = incomingFiles.find((f) =>
+          f.name.toLowerCase().includes(cleanTarget),
+        );
+        if (found) {
+          const { data: blob } = await supabase.storage
+            .from(BUCKET)
+            .download(`_incoming/${found.name}`);
+          if (blob && blob.size > 0) {
+            return new File([blob], filename, { type: mime });
+          }
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+
+    throw new Error(`File "${filename}" could not be downloaded from path "${path}".`);
   }
 
   async listDrafts(): Promise<DraftSummary[]> {
