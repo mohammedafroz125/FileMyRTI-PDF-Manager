@@ -9,6 +9,7 @@ import {
   Loader2,
   AlertCircle,
   RotateCw,
+  RotateCcw,
   Download,
   Stamp,
 } from "lucide-react";
@@ -33,7 +34,7 @@ type Props = {
   onClose: () => void;
   items: ViewerTimelineItem[];
   initialIndex: number;
-  onRotateItem?: (entryId: string) => void;
+  onRotateItem?: (entryId: string, direction?: "cw" | "ccw") => void;
   onUpdateStickers?: (entryId: string, updatedStickers: PageSticker[]) => void;
   onAddCourtStamp?: (entryId: string) => void;
 };
@@ -49,7 +50,6 @@ export function DocumentViewer({
 }: Props) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [zoom, setZoom] = useState(1.0);
-  const [extraRotation, setExtraRotation] = useState(0);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +60,6 @@ export function DocumentViewer({
   // Sync index when initialIndex changes or modal opens
   useEffect(() => {
     setCurrentIndex(initialIndex);
-    setExtraRotation(0);
   }, [initialIndex, isOpen]);
 
   const activeItem = items[currentIndex];
@@ -131,22 +130,27 @@ export function DocumentViewer({
   const handlePrev = () => {
     if (currentIndex > 0) {
       setCurrentIndex((i) => i - 1);
-      setExtraRotation(0);
     }
   };
 
   const handleNext = () => {
     if (currentIndex < items.length - 1) {
       setCurrentIndex((i) => i + 1);
-      setExtraRotation(0);
     }
   };
 
-  // Rotate handler
-  const handleRotate = () => {
+  // Rotate handlers: 90° Clockwise & 90° Counter-Clockwise
+  const handleRotateCw = () => {
     if (!activeItem) return;
     if (onRotateItem) {
-      onRotateItem(activeItem.id);
+      onRotateItem(activeItem.id, "cw");
+    }
+  };
+
+  const handleRotateCcw = () => {
+    if (!activeItem) return;
+    if (onRotateItem) {
+      onRotateItem(activeItem.id, "ccw");
     }
   };
 
@@ -186,7 +190,11 @@ export function DocumentViewer({
       } else if (e.key === "0") {
         setZoom(1.0);
       } else if (e.key.toLowerCase() === "r") {
-        handleRotate();
+        if (e.shiftKey) {
+          handleRotateCcw();
+        } else {
+          handleRotateCw();
+        }
       }
     };
 
@@ -240,11 +248,21 @@ export function DocumentViewer({
 
           <div className="mx-1 h-5 w-px bg-white/15" />
 
-          {/* Rotate */}
+          {/* Rotate 90° Counter-Clockwise */}
           <button
             type="button"
-            title="Rotate 90° (R)"
-            onClick={handleRotate}
+            title="Rotate 90° Counter-Clockwise (Shift+R)"
+            onClick={handleRotateCcw}
+            className="rounded-xl p-2.5 hover:bg-white/10 text-white/80 hover:text-white transition-all active:scale-95 cursor-pointer"
+          >
+            <RotateCcw className="h-4 w-4" />
+          </button>
+
+          {/* Rotate 90° Clockwise */}
+          <button
+            type="button"
+            title="Rotate 90° Clockwise (R)"
+            onClick={handleRotateCw}
             className="rounded-xl p-2.5 hover:bg-white/10 text-white/80 hover:text-white transition-all active:scale-95 cursor-pointer"
           >
             <RotateCw className="h-4 w-4" />
@@ -320,13 +338,12 @@ export function DocumentViewer({
           <ChevronLeft className="h-6 w-6" />
         </button>
 
-        {/* Rendered Document Container */}
+        {/* Rendered Document Container: Removed transition animation on transform so page orientation renders instantly */}
         <div className="flex-1 h-full w-full overflow-auto flex items-center justify-center">
           <div
             style={{
               transform: `scale(${zoom}) rotate(${effectiveRotation}deg)`,
               transformOrigin: "center center",
-              transition: "transform 0.15s ease-out",
             }}
             className="flex items-center justify-center p-4 max-w-full max-h-full"
           >
@@ -392,7 +409,7 @@ export function DocumentViewer({
       {/* Bottom Status / Indicator bar */}
       <footer className="text-center py-2 bg-slate-900/90 border-t border-white/10 text-[11px] text-slate-400 select-none">
         Navigate: <b>←</b> / <b>→</b> Arrow keys · Zoom: <b>+</b> / <b>-</b> ·
-        Rotate: <b>R</b> · Close: <b>Esc</b>
+        Rotate: <b>R</b> / <b>Shift+R</b> · Close: <b>Esc</b>
       </footer>
     </div>
   );

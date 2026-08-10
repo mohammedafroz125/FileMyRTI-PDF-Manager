@@ -32,6 +32,7 @@ import {
   ArrowLeft,
   Stamp,
   Settings,
+  Printer,
 } from "lucide-react";
 import { toast } from "sonner";
 import { safeRandomUUID } from "@/lib/utils";
@@ -675,7 +676,7 @@ function Index() {
   const registerItem = async (
     file: File,
     kind: "pdf" | "image",
-    opts?: { append?: boolean; replaceEntryId?: string },
+    opts?: { append?: boolean; replaceEntryId?: string; insertIndex?: number },
   ): Promise<void> => {
     const it: MergeItem = {
       id: `item-${safeRandomUUID()}`,
@@ -702,6 +703,13 @@ function Index() {
             e.id === opts.replaceEntryId ? { ...entry, id: e.id } : e,
           ),
         );
+      } else if (opts?.insertIndex !== undefined) {
+        setTimeline((prev) => {
+          const copy = [...prev];
+          const idx = Math.min(copy.length, Math.max(0, opts.insertIndex!));
+          copy.splice(idx, 0, entry);
+          return copy;
+        });
       } else {
         setTimeline((prev) => [...prev, entry]);
       }
@@ -733,6 +741,13 @@ function Index() {
         if (idx < 0) return [...prev, ...newEntries];
         const copy = [...prev];
         copy.splice(idx, 1, ...newEntries);
+        return copy;
+      });
+    } else if (opts?.insertIndex !== undefined) {
+      setTimeline((prev) => {
+        const copy = [...prev];
+        const idx = Math.min(copy.length, Math.max(0, opts.insertIndex!));
+        copy.splice(idx, 0, ...newEntries);
         return copy;
       });
     } else {
@@ -1256,7 +1271,8 @@ function Index() {
           }
 
           if (cancelled) return;
-          await registerItem(file, kind);
+          // Mobile uploads insert at Position 2 (index 1, immediately after Page 1)
+          await registerItem(file, kind, { insertIndex: 1 });
           toast.success(`New file received via QR upload: ${m.name}`);
         }
       } catch (err) {
@@ -1467,27 +1483,20 @@ function Index() {
     rtiTypeSelected,
   ]);
 
-  /** Insert a pasted image after the last "original-page" entry (ACK position). */
+  /** Insert a pasted image at Position 1 (index 0 / beginning of page list). */
   const insertPastedImageEntry = (itemId: string) => {
     setTimeline((prev) => {
-      let lastOrig = -1;
-      for (let i = 0; i < prev.length; i++) {
-        if (prev[i].type === "original-page") lastOrig = i;
-      }
       const entry: SavedTimelineEntry = {
         id: `entry-${crypto.randomUUID()}`,
         type: "item",
         itemId,
         pageIndex: 0,
       };
-      const idx = lastOrig + 1;
-      const copy = [...prev];
-      copy.splice(idx, 0, entry);
-      return copy;
+      return [entry, ...prev];
     });
   };
 
-  /** Attach a pasted image as an item and insert after the original PDF. */
+  /** Attach a pasted image as an item and insert at position 1. */
   const attachPastedImage = async (file: File) => {
     const optimized = await optimizeImage(file);
     const it: MergeItem = {
@@ -1502,7 +1511,7 @@ function Index() {
     setItemThumbs((prev) => ({ ...prev, [it.id]: [url] }));
     setItemPageCounts((prev) => ({ ...prev, [it.id]: 1 }));
     insertPastedImageEntry(it.id);
-    toast.success("Image pasted and inserted after original");
+    toast.success("Image pasted at position 1");
   };
 
   const addFiles = async (files: File[]) => {
@@ -1599,11 +1608,17 @@ function Index() {
     setTimeline((prev) => prev.filter((e) => e.id !== entryId));
   }, []);
 
-  const rotateEntry = useCallback((entryId: string) => {
+  const rotateEntry = useCallback((entryId: string, direction: "cw" | "ccw" = "cw") => {
     setTimeline((prev) =>
       prev.map((e) =>
         e.id === entryId
-          ? { ...e, rotation: ((e.rotation ?? 0) + 90) % 360 }
+          ? {
+              ...e,
+              rotation:
+                direction === "cw"
+                  ? ((e.rotation ?? 0) + 90) % 360
+                  : ((e.rotation ?? 0) - 90 + 360) % 360,
+            }
           : e,
       ),
     );
@@ -1891,6 +1906,100 @@ function Index() {
     return out;
   };
 
+  const getRangeFilename = (rangeInput: string) => {
+    if (!activeDoc) return "Pages.pdf";
+    const trimmedRange = rangeInput.trim();
+    if (!trimmedRange || trimmedRange === "1" || trimmedRange === "1-1") {
+      return getOutputFilename();
+    }
+
+    const fallback =
+      activeDoc.original_name.replace(/\.[^/.]+$/i, "") || "Project";
+    const rawName = pdfName.trim() || activeDoc.customer_name || fallback;
+    const cleanBase = rawName
+      .replace(/\.pdf$/i, "")
+      .replace(/\s*\((RTI Application|First Appeal|Second Appeal)\)$/i, "");
+
+    const sanitizedRange = trimmedRange.replace(/\s+/g, "");
+
+    return `${cleanBase}_Pages_${sanitizedRange}.pdf`;
+  };
+
+  const handlePrint = async () => {
+    if (timeline.length === 0 || !activeDoc) return;
+    setStatus({
+      kind: "working",
+      pct: 0,
+      label: "Preparing document for printing…",
+    });
+    try {
+      const originalFiles: Record<string, File> = {};
+      for (const o of originals) originalFiles[o.id] = o.file;
+      const plan: PlanEntry[] = timeline
+        .map<PlanEntry | null>((entry) => {
+          if (entry.type === "original-page") {
+            if (!originalFiles[entry.originalId]) return null;
+            return {
+              entryId: entry.id,
+              kind: "original-page",
+              originalId: entry.originalId,
+              pageIndex: entry.pageIndex,
+              rotation: entry.rotation,
+              stickers: entry.stickers,
+            };
+          }
+          const item = itemById.get(entry.itemId);
+          if (!item) return null;
+          return {
+            entryId: entry.id,
+            kind: "item",
+            item,
+            pageIndex: entry.pageIndex ?? 0,
+            rotation: entry.rotation,
+            stickers: entry.stickers,
+          };
+        })
+        .filter((x): x is PlanEntry => x !== null);
+
+      const blob = await mergeByPlan(originalFiles, plan, (pct) =>
+        setStatus({ kind: "working", pct, label: "Preparing print layout…" }),
+      );
+      const blobUrl = URL.createObjectURL(blob);
+
+      const printIframe = document.createElement("iframe");
+      printIframe.style.position = "fixed";
+      printIframe.style.right = "0";
+      printIframe.style.bottom = "0";
+      printIframe.style.width = "0";
+      printIframe.style.height = "0";
+      printIframe.style.border = "0";
+      printIframe.src = blobUrl;
+      document.body.appendChild(printIframe);
+
+      printIframe.onload = () => {
+        setTimeout(() => {
+          try {
+            printIframe.contentWindow?.focus();
+            printIframe.contentWindow?.print();
+          } catch (e) {
+            console.error("Iframe print error", e);
+          }
+          setTimeout(() => {
+            if (document.body.contains(printIframe)) {
+              document.body.removeChild(printIframe);
+            }
+            URL.revokeObjectURL(blobUrl);
+          }, 60000);
+        }, 500);
+      };
+
+      setStatus({ kind: "idle" });
+    } catch (err) {
+      setStatus({ kind: "error", message: (err as Error).message });
+      toast.error(`Print failed: ${(err as Error).message}`);
+    }
+  };
+
   const downloadRange = async () => {
     if (!activeDoc) return;
     const indices = parsePageRange(pageRange, timeline.length);
@@ -1916,6 +2025,7 @@ function Index() {
               originalId: entry.originalId,
               pageIndex: entry.pageIndex,
               rotation: entry.rotation,
+              stickers: entry.stickers,
             };
           }
           const item = itemById.get(entry.itemId);
@@ -1926,6 +2036,7 @@ function Index() {
             item,
             pageIndex: entry.pageIndex ?? 0,
             rotation: entry.rotation,
+            stickers: entry.stickers,
           };
         })
         .filter((x): x is PlanEntry => x !== null);
@@ -1934,7 +2045,7 @@ function Index() {
       );
       console.log("CALLING optimizePdfBlob");
       blob = await optimizePdfBlob(blob, "output.pdf", "Balanced", 2);
-      downloadBlob(blob, sanitizeFile(getOutputFilename()));
+      downloadBlob(blob, sanitizeFile(getRangeFilename(pageRange)));
       setStatus({ kind: "done", message: "Downloaded" });
     } catch (err) {
       setStatus({ kind: "error", message: (err as Error).message });
@@ -2218,13 +2329,13 @@ function Index() {
                         </p>
                       </div>
 
-                      {/* 📑 Court Stamp Action Button */}
+                      {/* 📑 Court Stamp & 🖨 Print Action Buttons */}
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
                           onClick={handleCourtStampClick}
                           disabled={timeline.length === 0}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-bold text-blue-700 shadow-sm hover:bg-blue-100 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 shadow-sm hover:bg-blue-100 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
                           title="Insert Court Stamp onto selected page"
                         >
                           <Stamp className="h-4 w-4 text-blue-600" /> 📑 Court
@@ -2240,6 +2351,17 @@ function Index() {
                             <Settings className="h-4 w-4 text-slate-600" />
                           </button>
                         )}
+                        <button
+                          type="button"
+                          onClick={handlePrint}
+                          disabled={
+                            timeline.length === 0 || status.kind === "working"
+                          }
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50 active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer"
+                          title="Print assembled document"
+                        >
+                          <Printer className="h-4 w-4 text-slate-700" /> 🖨 Print
+                        </button>
                       </div>
                     </div>
 

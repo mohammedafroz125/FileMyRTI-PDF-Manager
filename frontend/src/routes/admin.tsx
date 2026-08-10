@@ -12,6 +12,7 @@ import {
   ChevronUp,
   ChevronDown,
   FileText,
+  Copy,
   Image as ImageIcon,
 } from "lucide-react";
 import { createProjectWithOriginals } from "@/lib/rti-storage";
@@ -32,6 +33,7 @@ type UploadSlot = {
   id: string;
   files: File[];
   customerName: string;
+  duplicateCount: number;
   status: "idle" | "uploading" | "done" | "error";
   errorMsg?: string;
 };
@@ -57,7 +59,13 @@ function AdminUpload() {
   }, []);
 
   const [slots, setSlots] = useState<UploadSlot[]>([
-    { id: safeRandomUUID(), files: [], customerName: "", status: "idle" },
+    {
+      id: safeRandomUUID(),
+      files: [],
+      customerName: "",
+      duplicateCount: 1,
+      status: "idle",
+    },
   ]);
   const [createSeparateProjects, setCreateSeparateProjects] = useState(false);
   const [isUploadingAll, setIsUploadingAll] = useState(false);
@@ -67,7 +75,13 @@ function AdminUpload() {
   const addSlot = () => {
     setSlots((prev) => [
       ...prev,
-      { id: safeRandomUUID(), files: [], customerName: "", status: "idle" },
+      {
+        id: safeRandomUUID(),
+        files: [],
+        customerName: "",
+        duplicateCount: 1,
+        status: "idle",
+      },
     ]);
   };
 
@@ -129,10 +143,10 @@ function AdminUpload() {
     );
   };
 
-  // Normal creation logic: Creates ONE project containing all files attached to that slot card
+  // Normal creation logic: Creates N duplicate project records (each with independent ID and storage)
   const uploadProject = async (slot: UploadSlot) => {
     if (slot.files.length === 0) return;
-    updateSlot(slot.id, { status: "uploading", errorMsg: "" });
+    updateSlot(slot.id, { status: "uploading", errorMsg: "Processing files..." });
     try {
       const processedFiles = await Promise.all(
         slot.files.map(async (f) => {
@@ -159,10 +173,22 @@ function AdminUpload() {
           return f;
         }),
       );
-      updateSlot(slot.id, { errorMsg: "Saving project..." });
-      const nameToUse =
+
+      const count = Math.max(1, slot.duplicateCount || 1);
+      const baseName =
         slot.customerName.trim() || slot.files[0].name.replace(/\.[^/.]+$/, "");
-      await createProjectWithOriginals(nameToUse, processedFiles);
+
+      for (let i = 1; i <= count; i++) {
+        const label =
+          count > 1
+            ? `Creating duplicate project ${i} of ${count}...`
+            : "Saving project...";
+        updateSlot(slot.id, { errorMsg: label });
+        const projName = count > 1 ? `${baseName} (${i})` : baseName;
+        // Each call creates a completely independent project with unique ID & file copies
+        await createProjectWithOriginals(projName, processedFiles);
+      }
+
       updateSlot(slot.id, { status: "done" });
     } catch (err) {
       updateSlot(slot.id, {
@@ -354,6 +380,28 @@ function AdminUpload() {
                   />
                 </div>
 
+                {/* Duplicate Count Input */}
+                <div className="flex items-center justify-between gap-2 pt-0.5">
+                  <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                    <Copy className="h-3.5 w-3.5 text-slate-400" />
+                    Duplicate Copies:
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={slot.duplicateCount || 1}
+                    onChange={(e) => {
+                      const val = Math.max(1, parseInt(e.target.value, 10) || 1);
+                      updateSlot(slot.id, { duplicateCount: val });
+                    }}
+                    disabled={
+                      slot.status === "uploading" || slot.status === "done"
+                    }
+                    className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-bold text-slate-800 text-center shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
+                  />
+                </div>
+
                 {/* File Dropzone or Files List */}
                 <div>
                   {slot.files.length === 0 ? (
@@ -479,12 +527,16 @@ function AdminUpload() {
                 {slot.status === "done" && (
                   <div className="flex items-center gap-1.5 text-xs text-emerald-600 font-bold">
                     <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-                    <span>Project Created!</span>
+                    <span>
+                      {slot.duplicateCount > 1
+                        ? `${slot.duplicateCount} Projects Created!`
+                        : "Project Created!"}
+                    </span>
                   </div>
                 )}
               </div>
 
-              {/* Card Footer Action: Normal Single-Project Creation */}
+              {/* Card Footer Action: Create Single or Duplicate Projects */}
               <div className="border-t border-slate-100 p-3 bg-slate-50/30 rounded-b-xl">
                 {slot.status === "done" ? (
                   <button
@@ -494,6 +546,7 @@ function AdminUpload() {
                         status: "idle",
                         files: [],
                         customerName: "",
+                        duplicateCount: 1,
                       })
                     }
                     className="w-full rounded-lg bg-slate-100 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-200 transition-colors"
@@ -507,13 +560,15 @@ function AdminUpload() {
                     disabled={
                       slot.files.length === 0 || slot.status === "uploading"
                     }
-                    className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-blue-600 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                    className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-blue-600 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50 transition-colors cursor-pointer"
                   >
                     {slot.status === "uploading" ? (
                       <>
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />{" "}
                         Creating...
                       </>
+                    ) : slot.duplicateCount > 1 ? (
+                      `Create ${slot.duplicateCount} Duplicate Projects`
                     ) : (
                       "Create Project"
                     )}
