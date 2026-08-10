@@ -178,12 +178,20 @@ export async function mergeByPlan(
     );
     if (validIndices.length === 0) continue;
 
-    // Single-batch copy: copies ONLY objects referenced by validIndices
-    const copiedArray = await out.copyPages(doc, validIndices);
     const pageLookup = new Map<number, PDFPage>();
-    validIndices.forEach((srcIdx, i) => {
-      pageLookup.set(srcIdx, copiedArray[i]);
-    });
+    for (const srcIdx of validIndices) {
+      try {
+        const srcPage = doc.getPage(srcIdx);
+        if (srcPage) {
+          const [copiedPage] = await out.copyPages(doc, [srcIdx]);
+          if (copiedPage) {
+            pageLookup.set(srcIdx, copiedPage);
+          }
+        }
+      } catch (e) {
+        console.warn(`Failed to copy page index ${srcIdx} from document ${key}:`, e);
+      }
+    }
 
     batchCopiedPagesMap.set(key, pageLookup);
   }

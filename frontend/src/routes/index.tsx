@@ -1725,15 +1725,18 @@ function Index() {
 
       if (entry.type === "original-page") {
         let file = originalFiles[entry.originalId];
-        if (!file && originals.length > 0) {
-          file = originals[0].file;
-          originalFiles[entry.originalId] = file;
+        if ((!file || file.size <= 100) && originals.length > 0) {
+          const matched = originals.find((o) => o.id === entry.originalId) || originals[0];
+          file = matched?.file;
+          if (file && file.size > 100) {
+            originalFiles[entry.originalId] = file;
+          }
         }
-        if (!file) {
+        if (!file || file.size <= 100) {
           const origObj = originalsById.get(entry.originalId);
           const docName = origObj?.name ? ` ("${origObj.name}")` : "";
           throw new Error(
-            `Page ${pageNum}${docName}: Original PDF file reference is missing or still loading.`,
+            `Page ${pageNum}${docName}: Original PDF source file could not be loaded from cloud storage.`,
           );
         }
         plan.push({
@@ -1746,10 +1749,10 @@ function Index() {
         });
       } else {
         const item = itemById.get(entry.itemId);
-        if (!item || !item.file) {
+        if (!item || !item.file || item.file.size <= 100) {
           const nameStr = item?.name ? ` ("${item.name}")` : "";
           throw new Error(
-            `Page ${pageNum}${nameStr}: Item file reference is missing or unreadable.`,
+            `Page ${pageNum}${nameStr}: Item source file could not be loaded from cloud storage.`,
           );
         }
         plan.push({

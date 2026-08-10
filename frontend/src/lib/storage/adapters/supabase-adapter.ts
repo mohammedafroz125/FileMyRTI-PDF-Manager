@@ -331,10 +331,15 @@ export class SupabaseStorageAdapter implements IStorageProvider {
     filename: string,
     mime: string,
   ): Promise<File> {
+    console.log(`[Storage Engine] Attempting to download "${filename}" (path: "${path}")...`);
+
     // 1. Try local IndexedDB first
     try {
       const localFile = await this.fallbackAdapter.downloadFromPath(path, filename, mime);
-      if (localFile && localFile.size > 100) return localFile;
+      if (localFile && localFile.size > 100) {
+        console.log(`[Storage Engine] Loaded "${filename}" from local IndexedDB (${localFile.size} bytes).`);
+        return localFile;
+      }
     } catch {
       /* ignore local error and fallback to cloud */
     }
@@ -343,6 +348,7 @@ export class SupabaseStorageAdapter implements IStorageProvider {
     try {
       const { data, error } = await supabase.storage.from(BUCKET).download(path);
       if (!error && data && data.size > 100) {
+        console.log(`[Storage Engine] Downloaded "${filename}" from exact cloud path "${path}" (${data.size} bytes).`);
         return new File([data], filename, { type: mime });
       }
     } catch {
@@ -357,7 +363,6 @@ export class SupabaseStorageAdapter implements IStorageProvider {
     const docId = match ? match[1] : null;
 
     if (docId) {
-      // Search in docId/originals, docId/items, and docId
       for (const folder of [`${docId}/originals`, `${docId}/items`, docId]) {
         try {
           const { data: files } = await supabase.storage
@@ -372,7 +377,7 @@ export class SupabaseStorageAdapter implements IStorageProvider {
                   (fNorm.length > 3 && targetNorm.includes(fNorm)) ||
                   (targetNorm.length > 3 && fNorm.includes(targetNorm))
                 );
-              }) || files[0]; // fallback to first file if single file in folder
+              }) || files[0];
 
             if (found) {
               const fileKey = `${folder}/${found.name}`;
@@ -380,6 +385,7 @@ export class SupabaseStorageAdapter implements IStorageProvider {
                 .from(BUCKET)
                 .download(fileKey);
               if (!dlErr && blob && blob.size > 100) {
+                console.log(`[Storage Engine] Smart search resolved "${filename}" to "${fileKey}" (${blob.size} bytes).`);
                 return new File([blob], filename, { type: mime });
               }
             }
@@ -411,6 +417,7 @@ export class SupabaseStorageAdapter implements IStorageProvider {
               .from(BUCKET)
               .download(fileKey);
             if (!dlErr && blob && blob.size > 100) {
+              console.log(`[Storage Engine] Global search resolved "${filename}" to "${fileKey}" (${blob.size} bytes).`);
               return new File([blob], filename, { type: mime });
             }
           }
@@ -420,7 +427,8 @@ export class SupabaseStorageAdapter implements IStorageProvider {
       }
     }
 
-    throw new Error(`File "${filename}" could not be downloaded from storage.`);
+    console.error(`[Storage Error] Failed to resolve file "${filename}" from path "${path}" in bucket "${BUCKET}".`);
+    throw new Error(`File "${filename}" could not be downloaded from Supabase storage (Bucket: ${BUCKET}, Path: ${path}).`);
   }
 
   async listDrafts(): Promise<DraftSummary[]> {
