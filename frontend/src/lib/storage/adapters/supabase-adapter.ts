@@ -32,6 +32,15 @@ function slugify(s: string) {
   );
 }
 
+function normalizeFileName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\.[^/.]+$/, "") // strip extension
+    .replace(/^[0-9]+-/, "") // strip leading order digits like "0-"
+    .replace(/^[a-f0-9-]{36}-/, "") // strip leading UUID prefix
+    .replace(/[^a-z0-9]/g, ""); // strip non-alphanumeric chars
+}
+
 function mimeForItem(kind: "pdf" | "image", name: string) {
   if (kind === "pdf") return "application/pdf";
   return name.toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
@@ -325,7 +334,7 @@ export class SupabaseStorageAdapter implements IStorageProvider {
     // 1. Try local IndexedDB first
     try {
       const localFile = await this.fallbackAdapter.downloadFromPath(path, filename, mime);
-      if (localFile && localFile.size > 0) return localFile;
+      if (localFile && localFile.size > 100) return localFile;
     } catch {
       /* ignore local error and fallback to cloud */
     }
@@ -333,39 +342,44 @@ export class SupabaseStorageAdapter implements IStorageProvider {
     // 2. Try exact path in Supabase Cloud Storage
     try {
       const { data, error } = await supabase.storage.from(BUCKET).download(path);
-      if (!error && data && data.size > 0) {
+      if (!error && data && data.size > 100) {
         return new File([data], filename, { type: mime });
       }
     } catch {
       /* ignore */
     }
 
-    // 3. Smart Cloud Search: Extract docId from path if available (e.g. "idb_orig_docId_..." or "docId/...")
+    // Normalize target filename for fuzzy matching
+    const targetNorm = normalizeFileName(filename);
+
+    // 3. Smart Cloud Search: Extract docId from path or check all folders for docId
     const match = path.match(/([a-f0-9-]{36})/i);
     const docId = match ? match[1] : null;
 
     if (docId) {
-      // Search in docId/originals and docId/items
-      for (const folder of [`${docId}/originals`, `${docId}/items`]) {
+      // Search in docId/originals, docId/items, and docId
+      for (const folder of [`${docId}/originals`, `${docId}/items`, docId]) {
         try {
-          const { data: files } = await supabase.storage.from(BUCKET).list(folder, { limit: 100 });
+          const { data: files } = await supabase.storage
+            .from(BUCKET)
+            .list(folder, { limit: 100 });
           if (files && files.length > 0) {
-            // Match file by clean name
-            const cleanTarget = filename.toLowerCase().replace(/\.[^/.]+$/, "");
             const found =
               files.find((f) => {
-                const fLower = f.name.toLowerCase();
+                const fNorm = normalizeFileName(f.name);
                 return (
-                  fLower.includes(cleanTarget) ||
-                  cleanTarget.includes(fLower.replace(/\.[^/.]+$/, ""))
+                  fNorm === targetNorm ||
+                  (fNorm.length > 3 && targetNorm.includes(fNorm)) ||
+                  (targetNorm.length > 3 && fNorm.includes(targetNorm))
                 );
-              }) || files[0]; // fallback to first file if only 1 file exists
+              }) || files[0]; // fallback to first file if single file in folder
 
             if (found) {
-              const { data: blob } = await supabase.storage
+              const fileKey = `${folder}/${found.name}`;
+              const { data: blob, error: dlErr } = await supabase.storage
                 .from(BUCKET)
-                .download(`${folder}/${found.name}`);
-              if (blob && blob.size > 0) {
+                .download(fileKey);
+              if (!dlErr && blob && blob.size > 100) {
                 return new File([blob], filename, { type: mime });
               }
             }
@@ -376,30 +390,37 @@ export class SupabaseStorageAdapter implements IStorageProvider {
       }
     }
 
-    // 4. Try incoming folder fallback
-    try {
-      const cleanTarget = filename.toLowerCase().replace(/\.[^/.]+$/, "");
-      const { data: incomingFiles } = await supabase.storage
-        .from(BUCKET)
-        .list("_incoming", { limit: 100 });
-      if (incomingFiles && incomingFiles.length > 0) {
-        const found = incomingFiles.find((f) =>
-          f.name.toLowerCase().includes(cleanTarget),
-        );
-        if (found) {
-          const { data: blob } = await supabase.storage
-            .from(BUCKET)
-            .download(`_incoming/${found.name}`);
-          if (blob && blob.size > 0) {
-            return new File([blob], filename, { type: mime });
+    // 4. Global Search in BUCKET root and _incoming
+    for (const folder of ["_incoming", ""]) {
+      try {
+        const { data: files } = await supabase.storage
+          .from(BUCKET)
+          .list(folder, { limit: 100 });
+        if (files && files.length > 0) {
+          const found = files.find((f) => {
+            const fNorm = normalizeFileName(f.name);
+            return (
+              fNorm === targetNorm ||
+              (fNorm.length > 3 && targetNorm.includes(fNorm)) ||
+              (targetNorm.length > 3 && fNorm.includes(targetNorm))
+            );
+          });
+          if (found) {
+            const fileKey = folder ? `${folder}/${found.name}` : found.name;
+            const { data: blob, error: dlErr } = await supabase.storage
+              .from(BUCKET)
+              .download(fileKey);
+            if (!dlErr && blob && blob.size > 100) {
+              return new File([blob], filename, { type: mime });
+            }
           }
         }
+      } catch {
+        /* ignore */
       }
-    } catch {
-      /* ignore */
     }
 
-    throw new Error(`File "${filename}" could not be downloaded from path "${path}".`);
+    throw new Error(`File "${filename}" could not be downloaded from storage.`);
   }
 
   async listDrafts(): Promise<DraftSummary[]> {
