@@ -180,23 +180,24 @@ function downloadBlob(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
-async function savePdfBlob(blob: Blob, filename: string): Promise<boolean> {
+export type FilePickerHandle = {
+  createWritable: () => Promise<{
+    write: (b: Blob) => Promise<void>;
+    close: () => Promise<void>;
+  }>;
+};
+
+async function promptSaveFilePicker(
+  filename: string,
+): Promise<FilePickerHandle | null | false> {
   const picker = (
     window as unknown as {
-      showSaveFilePicker?: (
-        opts: unknown,
-      ) => Promise<{
-        createWritable: () => Promise<{
-          write: (b: Blob) => Promise<void>;
-          close: () => Promise<void>;
-        }>;
-      }>;
+      showSaveFilePicker?: (opts: unknown) => Promise<FilePickerHandle>;
     }
   ).showSaveFilePicker;
-  if (typeof picker !== "function") {
-    downloadBlob(blob, filename);
-    return true;
-  }
+
+  if (typeof picker !== "function") return null;
+
   try {
     const handle = await picker({
       suggestedName: filename,
@@ -207,15 +208,25 @@ async function savePdfBlob(blob: Blob, filename: string): Promise<boolean> {
         },
       ],
     });
-    const writable = await handle.createWritable();
-    await writable.write(blob);
-    await writable.close();
-    return true;
+    return handle;
   } catch (err) {
     if ((err as DOMException).name === "AbortError") return false;
-    downloadBlob(blob, filename);
-    return true;
+    return null;
   }
+}
+
+async function writeBlobToPickerHandle(
+  handle: FilePickerHandle,
+  blob: Blob,
+): Promise<void> {
+  const writable = await handle.createWritable();
+  await writable.write(blob);
+  await writable.close();
+}
+
+async function savePdfBlob(blob: Blob, filename: string): Promise<boolean> {
+  downloadBlob(blob, filename);
+  return true;
 }
 
 async function fileToPdf(
@@ -1771,21 +1782,49 @@ function Index() {
 
   const generateAndSave = async () => {
     if (!activeDoc) return;
-    setStatus({ kind: "working", pct: 0, label: "Merging pages…" });
+    const filename = sanitizeFile(getOutputFilename());
+
+    // 1. Prompt Save File Picker IMMEDIATELY on click to preserve user-gesture activation
+    let pickerHandle: FilePickerHandle | null | false = null;
     try {
-      const { originalFiles, plan } = buildPlanEntries(timeline);
-
-      let blob = await mergeByPlan(originalFiles, plan, (pct) =>
-        setStatus({ kind: "working", pct, label: "Merging pages…" }),
-      );
-      console.log("CALLING optimizePdfBlob");
-      blob = await optimizePdfBlob(blob, "output.pdf", "Balanced", 2);
-
-      const filename = sanitizeFile(getOutputFilename());
-      const saved = await savePdfBlob(blob, filename);
-      if (!saved) {
+      pickerHandle = await promptSaveFilePicker(filename);
+      if (pickerHandle === false) {
+        // User explicitly cancelled the file picker dialog
         setStatus({ kind: "idle" });
         return;
+      }
+    } catch {
+      pickerHandle = null;
+    }
+
+    setStatus({ kind: "working", pct: 0, label: "Resolving source files…" });
+    const tStart = performance.now();
+
+    try {
+      const t0 = performance.now();
+      const { originalFiles, plan } = buildPlanEntries(timeline);
+      const t1 = performance.now();
+
+      setStatus({ kind: "working", pct: 25, label: "Merging PDF pages…" });
+      let blob = await mergeByPlan(originalFiles, plan, (pct) =>
+        setStatus({ kind: "working", pct, label: "Merging PDF pages…" }),
+      );
+      const t2 = performance.now();
+
+      setStatus({ kind: "working", pct: 75, label: "Optimizing PDF (Ghostscript)…" });
+      blob = await optimizePdfBlob(blob, "output.pdf", "Balanced", 2);
+      const t3 = performance.now();
+
+      console.log(`[Performance Diagnostics] Save As Pipeline:
+  - Source File Resolution: ${(t1 - t0).toFixed(1)}ms
+  - PDF Page Merge: ${(t2 - t1).toFixed(1)}ms
+  - Ghostscript Optimization: ${(t3 - t2).toFixed(1)}ms
+  - Total Duration: ${(t3 - tStart).toFixed(1)}ms`);
+
+      if (pickerHandle) {
+        await writeBlobToPickerHandle(pickerHandle, blob);
+      } else {
+        downloadBlob(blob, filename);
       }
 
       if (isManualProject) {
@@ -2052,16 +2091,30 @@ function Index() {
       });
       return;
     }
-    setStatus({ kind: "working", pct: 0, label: "Preparing pages…" });
+    setStatus({ kind: "working", pct: 0, label: "Resolving source files…" });
+    const tStart = performance.now();
     try {
+      const t0 = performance.now();
       const subset = indices.map((i) => timeline[i]).filter(Boolean);
       const { originalFiles, plan } = buildPlanEntries(subset);
+      const t1 = performance.now();
 
+      setStatus({ kind: "working", pct: 25, label: "Merging PDF pages…" });
       let blob = await mergeByPlan(originalFiles, plan, (pct) =>
-        setStatus({ kind: "working", pct, label: "Merging pages…" }),
+        setStatus({ kind: "working", pct, label: "Merging PDF pages…" }),
       );
-      console.log("CALLING optimizePdfBlob");
+      const t2 = performance.now();
+
+      setStatus({ kind: "working", pct: 75, label: "Optimizing PDF (Ghostscript)…" });
       blob = await optimizePdfBlob(blob, "output.pdf", "Balanced", 2);
+      const t3 = performance.now();
+
+      console.log(`[Performance Diagnostics] Download Pipeline:
+  - Source File Resolution: ${(t1 - t0).toFixed(1)}ms
+  - PDF Page Merge: ${(t2 - t1).toFixed(1)}ms
+  - Ghostscript Optimization: ${(t3 - t2).toFixed(1)}ms
+  - Total Duration: ${(t3 - tStart).toFixed(1)}ms`);
+
       downloadBlob(blob, sanitizeFile(getRangeFilename(pageRange)));
       setStatus({ kind: "done", message: "Downloaded" });
     } catch (err) {

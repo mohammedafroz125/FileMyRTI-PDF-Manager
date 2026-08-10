@@ -68,6 +68,7 @@ async function withTimeout<T>(
 export class SupabaseStorageAdapter implements IStorageProvider {
   name: "supabase" = "supabase";
   private fallbackAdapter = new IndexedDbStorageAdapter();
+  private fileCache = new Map<string, File>();
 
   async listDocuments(): Promise<RtiDocument[]> {
     const localDocs = await this.fallbackAdapter.listDocuments();
@@ -331,13 +332,26 @@ export class SupabaseStorageAdapter implements IStorageProvider {
     filename: string,
     mime: string,
   ): Promise<File> {
-    console.log(`[Storage Engine] Attempting to download "${filename}" (path: "${path}")...`);
+    const cacheKey = `${path}::${filename}`;
+    const cached =
+      this.fileCache.get(cacheKey) ||
+      this.fileCache.get(path) ||
+      this.fileCache.get(filename);
+    if (cached && cached.size > 100) {
+      console.log(`[Storage Engine] In-memory cache hit for "${filename}" (0ms).`);
+      return cached;
+    }
+
+    console.log(`[Storage Engine] Downloading "${filename}" (path: "${path}")...`);
 
     // 1. Try local IndexedDB first
     try {
       const localFile = await this.fallbackAdapter.downloadFromPath(path, filename, mime);
       if (localFile && localFile.size > 100) {
         console.log(`[Storage Engine] Loaded "${filename}" from local IndexedDB (${localFile.size} bytes).`);
+        this.fileCache.set(cacheKey, localFile);
+        this.fileCache.set(path, localFile);
+        this.fileCache.set(filename, localFile);
         return localFile;
       }
     } catch {
@@ -349,7 +363,11 @@ export class SupabaseStorageAdapter implements IStorageProvider {
       const { data, error } = await supabase.storage.from(BUCKET).download(path);
       if (!error && data && data.size > 100) {
         console.log(`[Storage Engine] Downloaded "${filename}" from exact cloud path "${path}" (${data.size} bytes).`);
-        return new File([data], filename, { type: mime });
+        const cloudFile = new File([data], filename, { type: mime });
+        this.fileCache.set(cacheKey, cloudFile);
+        this.fileCache.set(path, cloudFile);
+        this.fileCache.set(filename, cloudFile);
+        return cloudFile;
       }
     } catch {
       /* ignore */
@@ -386,7 +404,11 @@ export class SupabaseStorageAdapter implements IStorageProvider {
                 .download(fileKey);
               if (!dlErr && blob && blob.size > 100) {
                 console.log(`[Storage Engine] Smart search resolved "${filename}" to "${fileKey}" (${blob.size} bytes).`);
-                return new File([blob], filename, { type: mime });
+                const foundFile = new File([blob], filename, { type: mime });
+                this.fileCache.set(cacheKey, foundFile);
+                this.fileCache.set(path, foundFile);
+                this.fileCache.set(filename, foundFile);
+                return foundFile;
               }
             }
           }
@@ -418,7 +440,11 @@ export class SupabaseStorageAdapter implements IStorageProvider {
               .download(fileKey);
             if (!dlErr && blob && blob.size > 100) {
               console.log(`[Storage Engine] Global search resolved "${filename}" to "${fileKey}" (${blob.size} bytes).`);
-              return new File([blob], filename, { type: mime });
+              const foundFile = new File([blob], filename, { type: mime });
+              this.fileCache.set(cacheKey, foundFile);
+              this.fileCache.set(path, foundFile);
+              this.fileCache.set(filename, foundFile);
+              return foundFile;
             }
           }
         }
