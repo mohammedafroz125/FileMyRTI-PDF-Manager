@@ -48,12 +48,28 @@ export function RtiSidebar({
   const [docs, setDocs] = useState<RtiDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [pendingExpanded, setPendingExpanded] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("sidebar_pending_expanded") !== "false";
+    }
+    return true;
+  });
   const [draftsExpanded, setDraftsExpanded] = useState(() => {
     if (typeof window !== "undefined") {
       return localStorage.getItem("sidebar_drafts_expanded") !== "false";
     }
     return true;
   });
+
+  const togglePendingExpanded = () => {
+    setPendingExpanded((prev) => {
+      const next = !prev;
+      if (typeof window !== "undefined") {
+        localStorage.setItem("sidebar_pending_expanded", String(next));
+      }
+      return next;
+    });
+  };
 
   const refresh = async () => {
     try {
@@ -186,10 +202,19 @@ export function RtiSidebar({
         {/* Pending Queue Category */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between px-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-              Pending Queue ({filteredDocs.length})
-            </span>
-            {filteredDocs.length > 0 && (
+            <button
+              type="button"
+              onClick={togglePendingExpanded}
+              className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:text-slate-700 transition-colors focus:outline-none cursor-pointer"
+            >
+              {pendingExpanded ? (
+                <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
+              )}
+              <span>Pending Queue ({filteredDocs.length})</span>
+            </button>
+            {filteredDocs.length > 0 && pendingExpanded && (
               <button
                 type="button"
                 onClick={handleDeleteAllPendingClick}
@@ -201,114 +226,113 @@ export function RtiSidebar({
             )}
           </div>
 
-          {filteredDocs.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-5 px-3 text-center bg-slate-50/50 rounded-xl border border-dashed border-slate-200/80">
-              <FileText className="h-5 w-5 text-slate-300 mb-1" />
-              <p className="text-xs font-bold text-slate-700">
-                {searchQuery ? "No matching projects found" : "No projects in queue"}
-              </p>
-              <p className="text-[10px] text-slate-400 mt-0.5 font-medium">
-                {searchQuery ? "Try searching another term" : "Upload files to get started"}
-              </p>
-            </div>
-          ) : (
-            <ul className="flex flex-col gap-1.5">
-              {filteredDocs.map((d) => {
-                const active = d.id === activeId;
-                const isCompleted = d.status === "completed";
-                return (
-                  <li key={d.id} className="group relative">
-                    <div
-                      className={`relative flex items-center justify-between rounded-xl p-2.5 transition-all duration-200 border ${
-                        active
-                          ? "bg-blue-50/90 border-blue-200/90 shadow-sm ring-1 ring-blue-500/20 before:absolute before:left-0 before:top-2.5 before:bottom-2.5 before:w-1 before:rounded-r-full before:bg-blue-600 pl-3.5"
-                          : "bg-white border-slate-200/70 hover:border-slate-300 hover:shadow-md hover:-translate-y-0.5"
-                      }`}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => onSelect(d)}
-                        className="min-w-0 flex-1 text-left"
+          {pendingExpanded &&
+            (filteredDocs.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-5 px-3 text-center bg-slate-50/50 rounded-xl border border-dashed border-slate-200/80">
+                <FileText className="h-5 w-5 text-slate-300 mb-1" />
+                <p className="text-xs font-bold text-slate-700">
+                  {searchQuery ? "No matching projects found" : "No projects in queue"}
+                </p>
+                <p className="text-[10px] text-slate-400 mt-0.5 font-medium">
+                  {searchQuery ? "Try searching another term" : "Upload files to get started"}
+                </p>
+              </div>
+            ) : (
+              <ul className="flex flex-col gap-1.5">
+                {filteredDocs.map((d) => {
+                  const active = d.id === activeId;
+                  const isCompleted = d.status === "completed";
+                  return (
+                    <li key={d.id} className="group relative">
+                      <div
+                        className={`relative flex items-center justify-between rounded-xl p-2.5 transition-all duration-200 border ${
+                          active
+                            ? "bg-blue-50/90 border-blue-200/90 shadow-sm ring-1 ring-blue-500/20 before:absolute before:left-0 before:top-2.5 before:bottom-2.5 before:w-1 before:rounded-r-full before:bg-blue-600 pl-3.5"
+                            : "bg-white border-slate-200/70 hover:border-slate-300 hover:shadow-md hover:-translate-y-0.5"
+                        }`}
                       >
-                        <div className="flex items-start gap-2.5">
-                          <div
-                            className={`p-1.5 rounded-lg ${active ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-500"}`}
-                          >
-                            <FileText className="h-4 w-4 shrink-0" />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p
-                              className={`truncate text-xs font-bold ${active ? "text-blue-950" : "text-slate-900"}`}
+                        <button
+                          type="button"
+                          onClick={() => onSelect(d)}
+                          className="min-w-0 flex-1 text-left"
+                        >
+                          <div className="flex items-start gap-2.5">
+                            <div
+                              className={`p-1.5 rounded-lg ${active ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-500"}`}
                             >
-                              {d.customer_name}
-                            </p>
-                            <p className="truncate text-[10px] font-medium text-slate-500 mt-0.5">
-                              {d.rti_type_selected ?? "RTI Application"}
-                            </p>
-                            <div className="mt-1 flex items-center justify-between gap-1">
-                              <span
-                                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[9px] font-bold border ${
-                                  isCompleted
-                                    ? "bg-emerald-50 text-emerald-700 border-emerald-200/60"
-                                    : "bg-amber-50 text-amber-700 border-amber-200/60"
-                                }`}
+                              <FileText className="h-4 w-4 shrink-0" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p
+                                className={`truncate text-xs font-bold ${active ? "text-blue-950" : "text-slate-900"}`}
                               >
-                                {isCompleted ? (
-                                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                                ) : (
-                                  <span className="relative flex h-1.5 w-1.5">
-                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-500"></span>
-                                  </span>
-                                )}
-                                {isCompleted ? "Completed" : "Pending"}
-                              </span>
-                              <span className="text-[9px] text-slate-400 font-medium truncate">
-                                {(() => {
-                                  const dObj = new Date(d.created_at);
-                                  if (isNaN(dObj.getTime())) return "";
-                                  const isToday =
-                                    dObj.toDateString() ===
-                                    new Date().toDateString();
-                                  const time = dObj.toLocaleTimeString([], {
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  });
-                                  return isToday
-                                    ? `Today ${time}`
-                                    : `${dObj.toLocaleDateString([], { month: "short", day: "numeric" })} ${time}`;
-                                })()}
-                              </span>
+                                {d.customer_name}
+                              </p>
+                              <p className="truncate text-[10px] font-medium text-slate-500 mt-0.5">
+                                {d.rti_type_selected ?? "RTI Application"}
+                              </p>
+                              <div className="mt-1 flex items-center justify-between gap-1">
+                                <span
+                                  className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[9px] font-bold border ${
+                                    isCompleted
+                                      ? "bg-emerald-50 text-emerald-700 border-emerald-200/80"
+                                      : "bg-amber-50 text-amber-700 border-amber-200/80"
+                                  }`}
+                                >
+                                  <span
+                                    className={`h-1.5 w-1.5 rounded-full ${
+                                      isCompleted
+                                        ? "bg-emerald-500"
+                                        : "bg-amber-500 animate-pulse"
+                                    }`}
+                                  />
+                                  {isCompleted ? "Completed" : "Pending"}
+                                </span>
+                                <span className="text-[9px] text-slate-400 font-medium">
+                                  {(() => {
+                                    const dObj = new Date(d.created_at);
+                                    const now = new Date();
+                                    const isToday =
+                                      dObj.toDateString() === now.toDateString();
+                                    const time = dObj.toLocaleTimeString([], {
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                    });
+                                    return isToday
+                                      ? `Today ${time}`
+                                      : `${dObj.toLocaleDateString([], { month: "short", day: "numeric" })} ${time}`;
+                                  })()}
+                                </span>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (
-                            !confirm(
-                              `Delete project "${d.customer_name}"? This cannot be undone.`,
-                            )
-                          ) {
-                            return;
-                          }
-                          setDocs((prev) => prev.filter((x) => x.id !== d.id));
-                          void Promise.resolve(onDelete(d));
-                        }}
-                        className="opacity-0 group-hover:opacity-100 hover:bg-red-50 hover:text-red-600 rounded-lg p-1.5 text-muted-foreground transition-all shrink-0 ml-1"
-                        aria-label={`Delete ${d.customer_name}`}
-                        title="Delete project"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (
+                              !confirm(
+                                `Delete project "${d.customer_name}"? This cannot be undone.`,
+                              )
+                            ) {
+                              return;
+                            }
+                            setDocs((prev) => prev.filter((x) => x.id !== d.id));
+                            void Promise.resolve(onDelete(d));
+                          }}
+                          className="opacity-0 group-hover:opacity-100 hover:bg-red-50 hover:text-red-600 rounded-lg p-1.5 text-muted-foreground transition-all shrink-0 ml-1"
+                          aria-label={`Delete ${d.customer_name}`}
+                          title="Delete project"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            ))}
         </div>
 
         {/* Separator Line */}

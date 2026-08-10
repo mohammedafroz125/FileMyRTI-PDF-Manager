@@ -1269,7 +1269,8 @@ function Index() {
 
         for (const m of fresh) seenMobilePathsRef.current.add(m.path);
 
-        for (const m of fresh) {
+        for (let i = 0; i < fresh.length; i++) {
+          const m = fresh[i];
           const lower = m.name.toLowerCase();
           const isDoc = lower.endsWith(".doc") || lower.endsWith(".docx");
           const isPdf = lower.endsWith(".pdf");
@@ -1295,8 +1296,8 @@ function Index() {
           }
 
           if (cancelled) return;
-          // Mobile uploads insert at Position 2 (index 1, immediately after Page 1)
-          await registerItem(file, kind, { insertIndex: 1, mobilePath: m.path });
+          // Mobile uploads insert starting at Position 2 (index 1 + i, preserving selection order: A -> Page 2, B -> Page 3, C -> Page 4)
+          await registerItem(file, kind, { insertIndex: 1 + i, mobilePath: m.path });
           toast.success(`New file received via QR upload: ${m.name}`);
         }
       } catch (err) {
@@ -1976,11 +1977,13 @@ function Index() {
     const rawName = pdfName.trim() || activeDoc.customer_name || fallback;
     const cleanBase = rawName
       .replace(/\.pdf$/i, "")
-      .replace(/\s*\((RTI Application|First Appeal|Second Appeal)\)$/i, "");
+      .replace(/\s*\((RTI Application|First Appeal|Second Appeal)\)$/i, "")
+      .trim();
 
     const sanitizedRange = trimmedRange.replace(/\s+/g, "");
+    const baseWithSuffix = cleanBase.replace(/\.pdf$/i, "");
 
-    return `${cleanBase}_Pages_${sanitizedRange}.pdf`;
+    return `${baseWithSuffix}_Pages_${sanitizedRange}.pdf`;
   };
 
   const handlePrint = async () => {
