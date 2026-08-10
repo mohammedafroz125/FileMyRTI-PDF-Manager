@@ -173,20 +173,17 @@ function AdminUpload() {
   };
 
   // Extract all supported files (.pdf, .doc, .docx, images) across all slots
-  const allAttachedFiles: { file: File; customerName: string; slotId: string }[] =
-    [];
+  const allAttachedFiles: { file: File; slotId: string }[] = [];
   for (const s of slots) {
     for (const f of s.files) {
       if (isSupportedFile(f)) {
-        const projName =
-          s.customerName.trim() || f.name.replace(/\.[^/.]+$/, "");
-        allAttachedFiles.push({ file: f, customerName: projName, slotId: s.id });
+        allAttachedFiles.push({ file: f, slotId: s.id });
       }
     }
   }
   const supportedFileCount = allAttachedFiles.length;
 
-  // Multiple project creation logic: Creates ONE independent project for EACH supported file
+  // Multiple project creation logic: Creates ONE independent project for EACH file using its OWN filename
   const createMultipleProjects = async () => {
     if (!createSeparateProjects || supportedFileCount === 0 || isUploadingAll)
       return;
@@ -219,9 +216,9 @@ function AdminUpload() {
           processedFile = new File([blob], f.name, { type: "application/pdf" });
         }
 
-        const nameToUse =
-          item.customerName.trim() || f.name.replace(/\.[^/.]+$/, "");
-        await createProjectWithOriginals(nameToUse, [processedFile]);
+        // Each generated project gets its OWN corresponding file name (without extension)
+        const projectName = f.name.replace(/\.[^/.]+$/, "");
+        await createProjectWithOriginals(projectName, [processedFile]);
       }
 
       for (const slotId of affectedSlotIds) {
