@@ -15,6 +15,7 @@ export type MergeItem = {
 };
 
 import type { PageSticker } from "./stickers";
+import { renderPdfPage } from "./pdf-thumbnails";
 
 export type PlanEntry =
   | {
@@ -35,22 +36,12 @@ export type PlanEntry =
     };
 
 /**
- * Strips global document catalog pointers (StructTreeRoot, Metadata, Names, Dests, Outlines)
- * that cause pdf-lib to pull in unrelated page streams from 90MB+ source PDFs during page copying.
+ * Strips Metadata pointer from catalog while preserving indirect object references.
  */
 function stripGlobalCatalogPointers(doc: PDFDocument): void {
   try {
     const catalog = doc.catalog;
-    catalog.delete(PDFName.of("StructTreeRoot"));
     catalog.delete(PDFName.of("Metadata"));
-    catalog.delete(PDFName.of("Names"));
-    catalog.delete(PDFName.of("Dests"));
-    catalog.delete(PDFName.of("Outlines"));
-    catalog.delete(PDFName.of("PieceInfo"));
-    catalog.delete(PDFName.of("OpenAction"));
-    catalog.delete(PDFName.of("OCProperties"));
-    catalog.delete(PDFName.of("Perms"));
-    catalog.delete(PDFName.of("Legal"));
   } catch {
     /* ignore */
   }
@@ -273,6 +264,37 @@ export async function mergeByPlan(
     }
   };
 
+  const getFallbackPageAsImage = async (
+    key: string,
+    file: File,
+    pageIndex: number,
+  ): Promise<PDFPage | null> => {
+    try {
+      const dataUrl = await renderPdfPage(key, file, pageIndex, 2.0);
+      if (!dataUrl) return null;
+      const parts = dataUrl.split(",");
+      if (parts.length < 2) return null;
+      const base64Data = parts[1];
+      const binaryStr = atob(base64Data);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+      }
+      const img = await out.embedJpg(bytes);
+      const fallbackPage = out.addPage([img.width, img.height]);
+      fallbackPage.drawImage(img, {
+        x: 0,
+        y: 0,
+        width: img.width,
+        height: img.height,
+      });
+      return fallbackPage;
+    } catch (e) {
+      console.error(`Fallback rendering failed for ${key} page ${pageIndex}:`, e);
+      return null;
+    }
+  };
+
   // 4. Assemble final PDF pages in target plan sequence
   let done = 0;
   for (const entry of plan) {
@@ -280,16 +302,26 @@ export async function mergeByPlan(
     if (entry.kind === "original-page") {
       const key = `orig-${entry.originalId}`;
       const pageLookup = batchCopiedPagesMap.get(key);
-      const page = pageLookup?.get(entry.pageIndex);
-      if (!page) {
+      const copiedPage = pageLookup?.get(entry.pageIndex);
+      if (copiedPage) {
+        if (entry.rotation) {
+          copiedPage.setRotation(degrees(((entry.rotation % 360) + 360) % 360));
+        }
+        addedPage = out.addPage(copiedPage);
+      } else {
+        const file = originals[entry.originalId];
+        if (file) {
+          addedPage = await getFallbackPageAsImage(key, file, entry.pageIndex);
+          if (addedPage && entry.rotation) {
+            addedPage.setRotation(degrees(((entry.rotation % 360) + 360) % 360));
+          }
+        }
+      }
+      if (!addedPage) {
         throw new Error(
-          `Unable to resolve Page ${done + 1}: original PDF page index ${entry.pageIndex + 1} is unreadable or out of range.`,
+          `Unable to resolve Page ${done + 1}: original PDF page index ${entry.pageIndex + 1} is unreadable.`,
         );
       }
-      if (entry.rotation) {
-        page.setRotation(degrees(((entry.rotation % 360) + 360) % 360));
-      }
-      addedPage = out.addPage(page);
     } else {
       const it = entry.item;
       if (!it || !it.file) {
@@ -301,16 +333,23 @@ export async function mergeByPlan(
         const key = `item-${it.id}`;
         const pageLookup = batchCopiedPagesMap.get(key);
         const pageIndex = entry.pageIndex ?? 0;
-        const page = pageLookup?.get(pageIndex);
-        if (!page) {
+        const copiedPage = pageLookup?.get(pageIndex);
+        if (copiedPage) {
+          if (entry.rotation) {
+            copiedPage.setRotation(degrees(((entry.rotation % 360) + 360) % 360));
+          }
+          addedPage = out.addPage(copiedPage);
+        } else {
+          addedPage = await getFallbackPageAsImage(key, it.file, pageIndex);
+          if (addedPage && entry.rotation) {
+            addedPage.setRotation(degrees(((entry.rotation % 360) + 360) % 360));
+          }
+        }
+        if (!addedPage) {
           throw new Error(
-            `Unable to resolve Page ${done + 1}: item "${it.name}" page index ${pageIndex + 1} is unreadable or out of range.`,
+            `Unable to resolve Page ${done + 1}: item "${it.name}" page index ${pageIndex + 1} is unreadable.`,
           );
         }
-        if (entry.rotation) {
-          page.setRotation(degrees(((entry.rotation % 360) + 360) % 360));
-        }
-        addedPage = out.addPage(page);
       } else {
         const img = await getOrEmbedImage(it);
         if (!img) {
