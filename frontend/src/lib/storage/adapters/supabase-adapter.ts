@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { PDFDocument } from "pdf-lib";
 import type { IStorageProvider } from "../types";
 import type {
   RtiDocument,
@@ -213,66 +214,126 @@ export class SupabaseStorageAdapter implements IStorageProvider {
     if (files.length === 0)
       throw new Error("At least one PDF or document file is required.");
 
-    // 1. Instant local store in IndexedDB (< 0.05 seconds) so project creation finishes IMMEDIATELY
-    const localDoc = await this.fallbackAdapter.createProjectWithOriginals(
-      customerName,
-      files,
-    );
+    const docId = safeRandomUUID();
+    const now = new Date().toISOString();
 
-    // 2. Asynchronous background cloud sync to Supabase (non-blocking)
-    this.asyncCloudSync(customerName, files, localDoc.id).catch((err) => {
-      console.warn("Background cloud sync notice (local project active):", err);
-    });
+    // 1. Upload files directly to Supabase Storage and create rti_originals records
+    const origRows: RtiOriginal[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      const origId = safeRandomUUID();
+      const ext = f.name.toLowerCase().endsWith(".pdf") ? "pdf" : "pdf";
+      const path = `${docId}/originals/${i}-${slugify(f.name)}.${ext}`;
 
-    return localDoc;
-  }
-
-  async updateDocument(
-    id: string,
-    patch: Partial<{
-      status: RtiStatus;
-      edited_path: string;
-      final_name: string;
-      plan_json: SavedPlan;
-      rti_type_selected: RtiTypeSelected;
-      deletion_scheduled_at: string | null;
-    }>,
-  ): Promise<RtiDocument> {
-    const updatedLocal = await this.fallbackAdapter.updateDocument(id, patch);
-    (async () => {
       try {
-        await supabase.from("rti_documents").update(patch).eq("id", id);
-      } catch {
-        /* ignore background sync error */
+        await supabase.storage
+          .from(BUCKET)
+          .upload(path, f, { contentType: "application/pdf", upsert: true });
+      } catch (err) {
+        console.warn("Storage upload notice:", err);
       }
-    })();
-    return updatedLocal;
-  }
 
-  async deleteDocumentData(id: string): Promise<void> {
-    await this.fallbackAdapter.deleteDocumentData(id);
-    (async () => {
+      origRows.push({
+        id: origId,
+        document_id: docId,
+        path,
+        name: f.name,
+        sort_order: i,
+        created_at: now,
+      });
+
+      this.fileCache.set(path, f);
+      this.fileCache.set(`${path}::${f.name}`, f);
+    }
+
+    const first = files[0];
+    const firstOrig = origRows[0];
+
+    // 2. Build initial timeline using permanent cloud original IDs
+    const timeline: SavedTimelineEntry[] = [];
+    for (const orig of origRows) {
+      const f = files[orig.sort_order];
+      let pageCount = 1;
       try {
-        await supabase.from("rti_documents").delete().eq("id", id);
+        const bytes = await f.arrayBuffer();
+        const pdfDoc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+        pageCount = Math.max(1, pdfDoc.getPageCount());
       } catch {
-        /* ignore background sync error */
+        pageCount = 1;
       }
-    })();
+      for (let pIdx = 0; pIdx < pageCount; pIdx++) {
+        timeline.push({
+          id: `orig-${orig.id}-${pIdx}-${safeRandomUUID()}`,
+          type: "original-page",
+          originalId: orig.id,
+          pageIndex: pIdx,
+        });
+      }
+    }
+
+    const initialPlan: SavedPlan = {
+      items: [],
+      timeline,
+      courtStampTemplate: undefined,
+      processedMobilePaths: [],
+    };
+
+    const newDoc: RtiDocument = {
+      id: docId,
+      customer_name: customerName.trim(),
+      rti_type: "RTI",
+      status: "pending",
+      original_path: firstOrig.path,
+      original_name: first.name,
+      edited_path: null,
+      final_name: null,
+      plan_json: initialPlan,
+      rti_type_selected: "RTI Application",
+      deletion_scheduled_at: null,
+      created_at: now,
+      updated_at: now,
+    };
+
+    // 3. Save to Supabase Cloud Database synchronously
+    try {
+      await supabase.from("rti_documents").insert(newDoc);
+      await supabase.from("rti_originals").insert(
+        origRows.map((r) => ({
+          id: r.id,
+          document_id: r.document_id,
+          path: r.path,
+          name: r.name,
+          sort_order: r.sort_order,
+        })),
+      );
+    } catch (dbErr) {
+      console.warn("Database insert notice:", dbErr);
+    }
+
+    // Save in IndexedDB as fallback
+    try {
+      await this.fallbackAdapter.saveProjectData(newDoc, origRows);
+    } catch {
+      /* ignore */
+    }
+
+    return newDoc;
   }
 
   async listOriginals(docId: string): Promise<RtiOriginal[]> {
     try {
-      const local = await this.fallbackAdapter.listOriginals(docId);
-      if (local && local.length > 0) return local;
+      const { data, error } = await supabase
+        .from("rti_originals")
+        .select("*")
+        .eq("document_id", docId)
+        .order("sort_order", { ascending: true });
+      if (!error && data && data.length > 0) {
+        return data as RtiOriginal[];
+      }
     } catch {
       /* ignore */
     }
-    const { data } = await supabase
-      .from("rti_originals")
-      .select("*")
-      .eq("document_id", docId)
-      .order("sort_order", { ascending: true });
-    return (data ?? []) as RtiOriginal[];
+    return this.fallbackAdapter.listOriginals(docId);
   }
 
   async uploadItemFile(
@@ -280,25 +341,33 @@ export class SupabaseStorageAdapter implements IStorageProvider {
     file: File,
     kind: "pdf" | "image",
   ): Promise<string> {
-    const localPath = await this.fallbackAdapter.uploadItemFile(
-      docId,
-      file,
-      kind,
-    );
-    const path = `${docId}/items/${safeRandomUUID()}-${slugify(file.name)}.${kind === "pdf" ? "pdf" : "jpg"}`;
-    (async () => {
-      try {
-        await supabase.storage
-          .from(BUCKET)
-          .upload(path, file, {
-            contentType: mimeForItem(kind, file.name),
-            upsert: false,
-          });
-      } catch {
-        /* ignore background sync error */
-      }
-    })();
-    return localPath;
+    const ext =
+      kind === "pdf"
+        ? "pdf"
+        : file.name.toLowerCase().endsWith(".png")
+          ? "png"
+          : "jpg";
+    const cloudPath = `${docId}/items/${safeRandomUUID()}-${slugify(file.name)}.${ext}`;
+
+    try {
+      await supabase.storage
+        .from(BUCKET)
+        .upload(cloudPath, file, {
+          contentType: mimeForItem(kind, file.name),
+          upsert: true,
+        });
+      this.fileCache.set(cloudPath, file);
+      this.fileCache.set(`${cloudPath}::${file.name}`, file);
+      return cloudPath;
+    } catch (err) {
+      console.warn("Storage item upload notice:", err);
+      const localPath = await this.fallbackAdapter.uploadItemFile(
+        docId,
+        file,
+        kind,
+      );
+      return localPath;
+    }
   }
 
   async uploadEdited(
@@ -342,27 +411,13 @@ export class SupabaseStorageAdapter implements IStorageProvider {
       return cached;
     }
 
-    console.log(`[Storage Engine] Downloading "${filename}" (path: "${path}")...`);
+    console.log(`[Storage Engine] Downloading "${filename}" from Supabase Cloud Storage (path: "${path}")...`);
 
-    // 1. Try local IndexedDB first
-    try {
-      const localFile = await this.fallbackAdapter.downloadFromPath(path, filename, mime);
-      if (localFile && localFile.size > 100) {
-        console.log(`[Storage Engine] Loaded "${filename}" from local IndexedDB (${localFile.size} bytes).`);
-        this.fileCache.set(cacheKey, localFile);
-        this.fileCache.set(path, localFile);
-        this.fileCache.set(filename, localFile);
-        return localFile;
-      }
-    } catch {
-      /* ignore local error and fallback to cloud */
-    }
-
-    // 2. Try exact path in Supabase Cloud Storage
+    // 1. Try exact path in Supabase Cloud Storage FIRST (Single Source of Truth)
     try {
       const { data, error } = await supabase.storage.from(BUCKET).download(path);
       if (!error && data && data.size > 100) {
-        console.log(`[Storage Engine] Downloaded "${filename}" from exact cloud path "${path}" (${data.size} bytes).`);
+        console.log(`[Storage Engine] Downloaded "${filename}" from Supabase Cloud Storage path "${path}" (${data.size} bytes).`);
         const cloudFile = new File([data], filename, { type: mime });
         this.fileCache.set(cacheKey, cloudFile);
         this.fileCache.set(path, cloudFile);
@@ -371,6 +426,20 @@ export class SupabaseStorageAdapter implements IStorageProvider {
       }
     } catch {
       /* ignore */
+    }
+
+    // 2. Try local IndexedDB fallback (offline cache)
+    try {
+      const localFile = await this.fallbackAdapter.downloadFromPath(path, filename, mime);
+      if (localFile && localFile.size > 100) {
+        console.log(`[Storage Engine] Loaded "${filename}" from local IndexedDB fallback (${localFile.size} bytes).`);
+        this.fileCache.set(cacheKey, localFile);
+        this.fileCache.set(path, localFile);
+        this.fileCache.set(filename, localFile);
+        return localFile;
+      }
+    } catch {
+      /* ignore local error and fallback to smart search */
     }
 
     // Normalize target filename for fuzzy matching
