@@ -6,6 +6,7 @@ import type {
   RtiStatus,
   RtiTypeSelected,
   SavedPlan,
+  SavedTimelineEntry,
   MobileToken,
 } from "../../rti-storage";
 import type { DraftSummary, ManualDraft } from "../../manual-drafts";
@@ -16,6 +17,7 @@ import {
   renameDraft as renameIdbDraft,
   deleteDraft as deleteIdbDraft,
 } from "../../manual-drafts";
+import { getRobustPdfPageCount } from "./supabase-adapter";
 
 import { safeRandomUUID } from "@/lib/utils";
 
@@ -97,48 +99,57 @@ export class IndexedDbStorageAdapter implements IStorageProvider {
 
     const id = safeRandomUUID();
     const first = files[0];
-    const firstPath = await this.uploadOriginalFile(id, first);
-
     const now = new Date().toISOString();
-    const newDoc: RtiDocument = {
-      id,
-      customer_name: customerName.trim(),
-      rti_type: "RTI",
-      status: "pending",
-      original_path: firstPath,
-      original_name: first.name,
-      edited_path: null,
-      final_name: null,
-      plan_json: null,
-      rti_type_selected: "RTI Application",
-      deletion_scheduled_at: null,
-      created_at: now,
-      updated_at: now,
-    };
 
-    const originalsList: RtiOriginal[] = [
-      {
-        id: safeRandomUUID(),
-        document_id: id,
-        path: firstPath,
-        name: first.name,
-        sort_order: 0,
-        created_at: now,
-      },
-    ];
+    const originalsList: RtiOriginal[] = [];
+    const timeline: SavedTimelineEntry[] = [];
 
-    for (let i = 1; i < files.length; i++) {
+    for (let i = 0; i < files.length; i++) {
       const f = files[i];
+      const origId = safeRandomUUID();
       const p = await this.uploadOriginalFile(id, f);
       originalsList.push({
-        id: safeRandomUUID(),
+        id: origId,
         document_id: id,
         path: p,
         name: f.name,
         sort_order: i,
         created_at: now,
       });
+
+      const pageCount = await getRobustPdfPageCount(`orig-${origId}`, f);
+      for (let pIdx = 0; pIdx < pageCount; pIdx++) {
+        timeline.push({
+          id: `orig-${origId}-${pIdx}-${safeRandomUUID()}`,
+          type: "original-page",
+          originalId: origId,
+          pageIndex: pIdx,
+        });
+      }
     }
+
+    const initialPlan: SavedPlan = {
+      items: [],
+      timeline,
+      courtStampTemplate: undefined,
+      processedMobilePaths: [],
+    };
+
+    const newDoc: RtiDocument = {
+      id,
+      customer_name: customerName.trim(),
+      rti_type: "RTI",
+      status: "pending",
+      original_path: originalsList[0].path,
+      original_name: first.name,
+      edited_path: null,
+      final_name: null,
+      plan_json: initialPlan,
+      rti_type_selected: "RTI Application",
+      deletion_scheduled_at: null,
+      created_at: now,
+      updated_at: now,
+    };
 
     await set(ORIGINALS_PREFIX + id, originalsList);
     const docs = await this.getDocsList();
