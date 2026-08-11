@@ -392,13 +392,102 @@ export async function mergeByPlan(
   onProgress?.(95);
 
   // 6. Save with Acrobat-compliant Object Stream compression
+  try {
+    const finalBytes = await out.save({
+      useObjectStreams: true,
+      addDefaultPage: false,
+    });
+    onProgress?.(100);
+    const ab = new ArrayBuffer(finalBytes.byteLength);
+    new Uint8Array(ab).set(finalBytes);
+    return new Blob([ab], { type: "application/pdf" });
+  } catch (err) {
+    console.warn(
+      "pdf-lib vector save failed due to invalid indirect references, executing clean image-stream fallback:",
+      err,
+    );
+    return await buildFallbackPdfFromImages(originals, plan, onProgress);
+  }
+}
+
+async function buildFallbackPdfFromImages(
+  originals: Record<string, File>,
+  plan: PlanEntry[],
+  onProgress?: (pct: number) => void,
+): Promise<Blob> {
+  console.warn("Executing PDF.js image-stream fallback merge pipeline...");
+  const out = await PDFDocument.create();
+
+  let done = 0;
+  for (const entry of plan) {
+    let pageFile: File | null = null;
+    let pageIdx = 0;
+
+    if (entry.kind === "original-page") {
+      pageFile = originals[entry.originalId] ?? null;
+      pageIdx = entry.pageIndex;
+    } else {
+      pageFile = entry.item.file;
+      pageIdx =
+        entry.kind === "item" && entry.item.kind === "pdf"
+          ? entry.pageIndex ?? 0
+          : 0;
+    }
+
+    if (!pageFile) {
+      throw new Error(`Fallback engine missing source file for page ${done + 1}`);
+    }
+
+    let addedPage: PDFPage | null = null;
+    if (entry.kind === "item" && entry.item.kind === "image") {
+      const { bytes, isPng } = await getOptimizedImageBytes(pageFile);
+      const img = isPng ? await out.embedPng(bytes) : await out.embedJpg(bytes);
+      addedPage = out.addPage([img.width, img.height]);
+      addedPage.drawImage(img, {
+        x: 0,
+        y: 0,
+        width: img.width,
+        height: img.height,
+      });
+    } else {
+      const key =
+        entry.kind === "original-page"
+          ? `orig-${entry.originalId}`
+          : `item-${entry.item.id}`;
+      const dataUrl = await renderPdfPage(key, pageFile, pageIdx, 2.0);
+      if (!dataUrl) {
+        throw new Error(`Fallback rendering failed for page ${done + 1}`);
+      }
+      const parts = dataUrl.split(",");
+      const base64Data = parts[1] ?? "";
+      const binaryStr = atob(base64Data);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+      }
+      const img = await out.embedJpg(bytes);
+      addedPage = out.addPage([img.width, img.height]);
+      addedPage.drawImage(img, {
+        x: 0,
+        y: 0,
+        width: img.width,
+        height: img.height,
+      });
+    }
+
+    if (addedPage && entry.rotation) {
+      addedPage.setRotation(degrees(((entry.rotation % 360) + 360) % 360));
+    }
+
+    done += 1;
+    onProgress?.(50 + Math.round((done / plan.length) * 45));
+  }
+
   const finalBytes = await out.save({
-    useObjectStreams: true,
+    useObjectStreams: false,
     addDefaultPage: false,
   });
-
   onProgress?.(100);
-
   const ab = new ArrayBuffer(finalBytes.byteLength);
   new Uint8Array(ab).set(finalBytes);
   return new Blob([ab], { type: "application/pdf" });
