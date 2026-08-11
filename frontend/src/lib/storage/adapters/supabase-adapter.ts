@@ -7,6 +7,7 @@ import type {
   RtiStatus,
   RtiTypeSelected,
   SavedPlan,
+  SavedTimelineEntry,
   MobileToken,
 } from "../../rti-storage";
 import type { DraftSummary, ManualDraft } from "../../manual-drafts";
@@ -310,14 +311,40 @@ export class SupabaseStorageAdapter implements IStorageProvider {
       console.warn("Database insert notice:", dbErr);
     }
 
-    // Save in IndexedDB as fallback
-    try {
-      await this.fallbackAdapter.saveProjectData(newDoc, origRows);
-    } catch {
-      /* ignore */
-    }
-
     return newDoc;
+  }
+
+  async updateDocument(
+    id: string,
+    patch: Partial<{
+      status: RtiStatus;
+      edited_path: string;
+      final_name: string;
+      plan_json: SavedPlan;
+      rti_type_selected: RtiTypeSelected;
+      deletion_scheduled_at: string | null;
+    }>,
+  ): Promise<RtiDocument> {
+    const updatedLocal = await this.fallbackAdapter.updateDocument(id, patch);
+    (async () => {
+      try {
+        await supabase.from("rti_documents").update(patch).eq("id", id);
+      } catch {
+        /* ignore background sync error */
+      }
+    })();
+    return updatedLocal;
+  }
+
+  async deleteDocumentData(id: string): Promise<void> {
+    await this.fallbackAdapter.deleteDocumentData(id);
+    (async () => {
+      try {
+        await supabase.from("rti_documents").delete().eq("id", id);
+      } catch {
+        /* ignore background sync error */
+      }
+    })();
   }
 
   async listOriginals(docId: string): Promise<RtiOriginal[]> {
