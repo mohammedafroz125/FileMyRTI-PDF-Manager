@@ -105,6 +105,58 @@ async function getOptimizedImageBytes(
   return { bytes: rawBytes, isPng };
 }
 
+async function drawStickersOnPage(
+  out: PDFDocument,
+  page: PDFPage,
+  stickerImageCache: Map<string, PDFImage>,
+  stickers?: PageSticker[],
+): Promise<void> {
+  if (!stickers || stickers.length === 0) return;
+  const pWidth = page.getWidth();
+  const pHeight = page.getHeight();
+
+  for (const sticker of stickers) {
+    if (!sticker || !sticker.imageDataUrl) continue;
+    try {
+      let img = stickerImageCache.get(sticker.imageDataUrl);
+      if (!img) {
+        const parts = sticker.imageDataUrl.split(",");
+        if (parts.length < 2) continue;
+        const mimeStr = parts[0] ?? "";
+        const base64Data = parts[1] ?? "";
+        if (!base64Data.trim()) continue;
+
+        const binaryStr = atob(base64Data);
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+          bytes[i] = binaryStr.charCodeAt(i);
+        }
+        if (bytes.byteLength === 0) continue;
+
+        const isPng = mimeStr.includes("png");
+        img = isPng ? await out.embedPng(bytes) : await out.embedJpg(bytes);
+        if (img) stickerImageCache.set(sticker.imageDataUrl, img);
+      }
+
+      if (!img) continue;
+
+      const drawW = (sticker.width / 100) * pWidth;
+      const drawH = (sticker.height / 100) * pHeight;
+      const drawX = (sticker.x / 100) * pWidth;
+      const drawY = pHeight - ((sticker.y / 100) * pHeight + drawH);
+
+      page.drawImage(img, {
+        x: drawX,
+        y: drawY,
+        width: drawW,
+        height: drawH,
+      });
+    } catch (err) {
+      console.warn("Failed to embed sticker onto page:", err);
+    }
+  }
+}
+
 /**
  * Ultra-Optimized PDF Export Engine.
  *
@@ -120,6 +172,22 @@ export async function mergeByPlan(
 ): Promise<Blob> {
   if (plan.length === 0) throw new Error("No pages to merge");
 
+  try {
+    return await executeVectorMerge(originals, plan, onProgress);
+  } catch (err) {
+    console.warn(
+      "Vector PDF merge pipeline encountered a parsing error, executing clean PDF.js image fallback:",
+      err,
+    );
+    return await buildFallbackPdfFromImages(originals, plan, onProgress);
+  }
+}
+
+async function executeVectorMerge(
+  originals: Record<string, File>,
+  plan: PlanEntry[],
+  onProgress?: (pct: number) => void,
+): Promise<Blob> {
   onProgress?.(10);
   const out = await PDFDocument.create();
 
@@ -132,26 +200,44 @@ export async function mergeByPlan(
       const key = `orig-${entry.originalId}`;
       if (!sourceDocsMap.has(key)) {
         const file = originals[entry.originalId];
-        if (!file)
-          throw new Error(`Original file missing for id ${entry.originalId}`);
-        const bytes = await file.arrayBuffer();
-        const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
-        stripGlobalCatalogPointers(doc);
-        sourceDocsMap.set(key, { doc, file });
-        pageIndicesPerSource.set(key, new Set());
+        if (file) {
+          try {
+            const bytes = await file.arrayBuffer();
+            const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+            stripGlobalCatalogPointers(doc);
+            sourceDocsMap.set(key, { doc, file });
+            pageIndicesPerSource.set(key, new Set());
+          } catch (e) {
+            console.warn(
+              `PDFDocument.load failed for original ${key}, will use PDF.js fallback:`,
+              e,
+            );
+          }
+        }
       }
-      pageIndicesPerSource.get(key)!.add(entry.pageIndex);
+      if (pageIndicesPerSource.has(key)) {
+        pageIndicesPerSource.get(key)!.add(entry.pageIndex);
+      }
     } else if (entry.kind === "item" && entry.item.kind === "pdf") {
       const key = `item-${entry.item.id}`;
       if (!sourceDocsMap.has(key)) {
-        const bytes = await entry.item.file.arrayBuffer();
-        const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
-        stripGlobalCatalogPointers(doc);
-        sourceDocsMap.set(key, { doc, file: entry.item.file });
-        pageIndicesPerSource.set(key, new Set());
+        try {
+          const bytes = await entry.item.file.arrayBuffer();
+          const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+          stripGlobalCatalogPointers(doc);
+          sourceDocsMap.set(key, { doc, file: entry.item.file });
+          pageIndicesPerSource.set(key, new Set());
+        } catch (e) {
+          console.warn(
+            `PDFDocument.load failed for item ${key}, will use PDF.js fallback:`,
+            e,
+          );
+        }
       }
-      const pageIndex = entry.pageIndex ?? 0;
-      pageIndicesPerSource.get(key)!.add(pageIndex);
+      if (pageIndicesPerSource.has(key)) {
+        const pageIndex = entry.pageIndex ?? 0;
+        pageIndicesPerSource.get(key)!.add(pageIndex);
+      }
     }
   }
 
@@ -214,55 +300,7 @@ export async function mergeByPlan(
 
   const stickerImageCache = new Map<string, PDFImage>();
 
-  const drawStickersOnPage = async (
-    page: PDFPage,
-    stickers?: PageSticker[],
-  ) => {
-    if (!stickers || stickers.length === 0) return;
-    const pWidth = page.getWidth();
-    const pHeight = page.getHeight();
 
-    for (const sticker of stickers) {
-      if (!sticker || !sticker.imageDataUrl) continue;
-      try {
-        let img = stickerImageCache.get(sticker.imageDataUrl);
-        if (!img) {
-          const parts = sticker.imageDataUrl.split(",");
-          if (parts.length < 2) continue;
-          const mimeStr = parts[0] ?? "";
-          const base64Data = parts[1] ?? "";
-          if (!base64Data.trim()) continue;
-
-          const binaryStr = atob(base64Data);
-          const bytes = new Uint8Array(binaryStr.length);
-          for (let i = 0; i < binaryStr.length; i++) {
-            bytes[i] = binaryStr.charCodeAt(i);
-          }
-          if (bytes.byteLength === 0) continue;
-
-          const isPng = mimeStr.includes("png");
-          img = isPng ? await out.embedPng(bytes) : await out.embedJpg(bytes);
-          if (img) stickerImageCache.set(sticker.imageDataUrl, img);
-        }
-
-        if (!img) continue; // CRITICAL: Skip if img is null/undefined to prevent page.drawImage assertion crash!
-
-        const drawW = (sticker.width / 100) * pWidth;
-        const drawH = (sticker.height / 100) * pHeight;
-        const drawX = (sticker.x / 100) * pWidth;
-        const drawY = pHeight - ((sticker.y / 100) * pHeight + drawH);
-
-        page.drawImage(img, {
-          x: drawX,
-          y: drawY,
-          width: drawW,
-          height: drawH,
-        });
-      } catch (err) {
-        console.warn("Failed to embed sticker onto page:", err);
-      }
-    }
-  };
 
   const getFallbackPageAsImage = async (
     key: string,
@@ -372,7 +410,12 @@ export async function mergeByPlan(
     }
 
     if (addedPage && entry.stickers && entry.stickers.length > 0) {
-      await drawStickersOnPage(addedPage, entry.stickers);
+      await drawStickersOnPage(
+        out,
+        addedPage,
+        stickerImageCache,
+        entry.stickers,
+      );
     }
 
     done += 1;
@@ -417,6 +460,7 @@ async function buildFallbackPdfFromImages(
 ): Promise<Blob> {
   console.warn("Executing PDF.js image-stream fallback merge pipeline...");
   const out = await PDFDocument.create();
+  const stickerImageCache = new Map<string, PDFImage>();
 
   let done = 0;
   for (const entry of plan) {
@@ -477,6 +521,15 @@ async function buildFallbackPdfFromImages(
 
     if (addedPage && entry.rotation) {
       addedPage.setRotation(degrees(((entry.rotation % 360) + 360) % 360));
+    }
+
+    if (addedPage && entry.stickers && entry.stickers.length > 0) {
+      await drawStickersOnPage(
+        out,
+        addedPage,
+        stickerImageCache,
+        entry.stickers,
+      );
     }
 
     done += 1;
