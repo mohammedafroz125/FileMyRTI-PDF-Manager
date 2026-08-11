@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { PDFDocument } from "pdf-lib";
+import { getPdfPageCount } from "@/lib/pdf-thumbnails";
 import type { IStorageProvider } from "../types";
 import type {
   RtiDocument,
@@ -65,6 +66,38 @@ async function withTimeout<T>(
     clearTimeout(timer!);
     throw err;
   }
+}
+
+export async function getRobustPdfPageCount(key: string, file: File): Promise<number> {
+  // 1. Try PDF.js (most accurate for LibreOffice DOC/DOCX converted PDFs & Ghostscript PDFs)
+  try {
+    const count = await getPdfPageCount(key, file);
+    if (typeof count === "number" && count > 0) return count;
+  } catch {
+    /* fallback to pdf-lib */
+  }
+
+  // 2. Try pdf-lib fallback
+  try {
+    const bytes = await file.arrayBuffer();
+    const pdfDoc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+    const count = pdfDoc.getPageCount();
+    if (typeof count === "number" && count > 0) return count;
+  } catch {
+    /* fallback to binary regex */
+  }
+
+  // 3. Binary regex search fallback
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const text = new TextDecoder("latin1").decode(bytes);
+    const matches = text.match(/\/Type\s*\/Page\b/g);
+    if (matches && matches.length > 0) return matches.length;
+  } catch {
+    /* ignore */
+  }
+
+  return 1;
 }
 
 export class SupabaseStorageAdapter implements IStorageProvider {
@@ -254,14 +287,9 @@ export class SupabaseStorageAdapter implements IStorageProvider {
     const timeline: SavedTimelineEntry[] = [];
     for (const orig of origRows) {
       const f = files[orig.sort_order];
-      let pageCount = 1;
-      try {
-        const bytes = await f.arrayBuffer();
-        const pdfDoc = await PDFDocument.load(bytes, { ignoreEncryption: true });
-        pageCount = Math.max(1, pdfDoc.getPageCount());
-      } catch {
-        pageCount = 1;
-      }
+      const pageCount = await getRobustPdfPageCount(`orig-${orig.id}`, f);
+      console.log(`[Project Creation] File "${f.name}" resolved ${pageCount} total pages.`);
+
       for (let pIdx = 0; pIdx < pageCount; pIdx++) {
         timeline.push({
           id: `orig-${orig.id}-${pIdx}-${safeRandomUUID()}`,
