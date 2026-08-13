@@ -56,16 +56,42 @@ function isH3SwallowedErrorBody(body: string): boolean {
 }
 
 import { handleProjectsCreate } from "./api/projectsCreate";
+import { handleMobileUpload } from "./api/mobileUpload";
 
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
       const url = new URL(request.url);
+      const pathname = url.pathname.toLowerCase();
+
+      // OPTIONS preflight handler for mobile uploads
+      if (
+        request.method === "OPTIONS" &&
+        (pathname.startsWith("/m/upload") ||
+          pathname.startsWith("/api/"))
+      ) {
+        return await handleMobileUpload(request);
+      }
+
+      // POST /api/projects/create
       if (
         request.method === "POST" &&
         url.pathname === "/api/projects/create"
       ) {
         return await handleProjectsCreate(request);
+      }
+
+      // POST Mobile upload endpoints (handles both QR URL POSTs and API POSTs)
+      if (
+        request.method === "POST" &&
+        (pathname.startsWith("/m/upload") ||
+          pathname.startsWith("/api/m/upload") ||
+          pathname === "/api/upload-mobile" ||
+          pathname === "/api/mobile-upload" ||
+          pathname === "/api/upload" ||
+          pathname === "/api/mobile/upload")
+      ) {
+        return await handleMobileUpload(request);
       }
 
       const handler = await getServerEntry();

@@ -1309,7 +1309,7 @@ function Index() {
           if (cancelled) return;
           // Mobile uploads insert starting at Position 2 (index 1 + i, preserving selection order: A -> Page 2, B -> Page 3, C -> Page 4)
           await registerItem(file, kind, { insertIndex: 1 + i, mobilePath: m.path });
-          toast.success(`New file received via QR upload: ${m.name}`);
+          toast.success(`✅ Mobile PDF received: ${m.name}`);
         }
       } catch (err) {
         console.warn("Mobile upload polling notice:", err);
