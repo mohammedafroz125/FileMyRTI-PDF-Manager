@@ -11,7 +11,13 @@ import { getBackendUrl } from "@/lib/pdf-optimizer-client";
 type Props = { docId: string; sessionId?: string };
 
 export function QrPhonePanel({ docId, sessionId }: Props) {
-  const effectiveId = sessionId ?? docId;
+  const effectiveId =
+    sessionId && sessionId.trim()
+      ? sessionId.trim()
+      : docId && docId.trim()
+        ? docId.trim()
+        : "";
+
   const [token, setToken] = useState<MobileToken | null>(null);
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -20,23 +26,34 @@ export function QrPhonePanel({ docId, sessionId }: Props) {
 
   const [customOrigin, setCustomOrigin] = useState<string | null>(null);
 
-  const url = token
-    ? `${customOrigin ?? (typeof window !== "undefined" ? window.location.origin : "")}/m/upload/${token.token}`
+  const url = token && token.token
+    ? `${customOrigin ?? (typeof window !== "undefined" ? window.location.origin : "https://pdffilemyrti.vercel.app")}/m/upload/${token.token}`
     : "";
 
   const generate = async (forceRefresh = false) => {
+    if (!effectiveId) return;
     setBusy(true);
     setGenError(null);
     try {
       const t = forceRefresh
         ? await createMobileToken(effectiveId, 120)
         : await getOrCreateActiveMobileToken(effectiveId, 120);
+
+      if (!t || !t.token) {
+        throw new Error("Failed to generate a valid mobile session token.");
+      }
+
       setToken(t);
 
-      let effectiveOrigin = window.location.origin;
+      let effectiveOrigin =
+        typeof window !== "undefined"
+          ? window.location.origin
+          : "https://pdffilemyrti.vercel.app";
+
       if (
-        window.location.hostname === "localhost" ||
-        window.location.hostname === "127.0.0.1"
+        typeof window !== "undefined" &&
+        (window.location.hostname === "localhost" ||
+          window.location.hostname === "127.0.0.1")
       ) {
         try {
           const backendUrl = getBackendUrl();
@@ -56,9 +73,11 @@ export function QrPhonePanel({ docId, sessionId }: Props) {
       setCustomOrigin(effectiveOrigin);
 
       const u = `${effectiveOrigin}/m/upload/${t.token}`;
-      const png = await QRCode.toDataURL(u, { margin: 1, width: 140 });
+      console.log(`[QR Generation] Final URL: ${u}`);
+      const png = await QRCode.toDataURL(u, { margin: 1, width: 280 });
       setDataUrl(png);
     } catch (err) {
+      console.error("[QR Generation Error]:", err);
       setGenError((err as Error).message ?? "Failed to generate QR");
     } finally {
       setBusy(false);

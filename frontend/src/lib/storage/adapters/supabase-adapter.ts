@@ -605,60 +605,95 @@ export class SupabaseStorageAdapter implements IStorageProvider {
     docId: string,
     ttlMinutes = 120,
   ): Promise<MobileToken> {
-    const localToken = await this.fallbackAdapter.createMobileToken(
-      docId,
-      ttlMinutes,
-    );
+    const validDocId = docId && docId.trim() ? docId.trim() : safeRandomUUID();
+    const tokenStr =
+      safeRandomUUID().replace(/-/g, "") +
+      safeRandomUUID().replace(/-/g, "").slice(0, 8);
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + ttlMinutes * 60 * 1000);
+
+    const tokenObj: MobileToken = {
+      id: safeRandomUUID(),
+      document_id: validDocId,
+      token: tokenStr,
+      expires_at: expiresAt.toISOString(),
+      created_at: now.toISOString(),
+    };
+
+    // Save to local fallback storage first
     try {
-      await supabase.from("rti_mobile_tokens").insert({
-        id: localToken.id,
-        document_id: docId,
-        token: localToken.token,
-        expires_at: localToken.expires_at,
-        created_at: localToken.created_at,
-      });
+      await this.fallbackAdapter.createMobileToken(validDocId, ttlMinutes);
     } catch {
-      /* ignore if cloud DB table offline */
+      /* ignore local IDB error */
     }
-    return localToken;
+
+    // Insert into Supabase Cloud Database rti_mobile_tokens
+    try {
+      const { error } = await supabase.from("rti_mobile_tokens").insert({
+        id: tokenObj.id,
+        document_id: validDocId,
+        token: tokenObj.token,
+        expires_at: tokenObj.expires_at,
+        created_at: tokenObj.created_at,
+      });
+
+      if (error) {
+        console.warn("[Mobile Token Insert Warning]:", error.message);
+      } else {
+        console.log(`[Mobile Token Created] docId=${validDocId}, token=${tokenObj.token}`);
+      }
+    } catch (err) {
+      console.warn("[Cloud Mobile Token Error]:", err);
+    }
+    return tokenObj;
   }
 
   async getOrCreateActiveMobileToken(
     docId: string,
     ttlMinutes = 120,
   ): Promise<MobileToken> {
-    try {
-      const { data } = await supabase
-        .from("rti_mobile_tokens")
-        .select("*")
-        .eq("document_id", docId)
-        .order("created_at", { ascending: false })
-        .limit(1);
+    const validDocId = docId && docId.trim() ? docId.trim() : "";
+    if (validDocId) {
+      try {
+        const { data } = await supabase
+          .from("rti_mobile_tokens")
+          .select("*")
+          .eq("document_id", validDocId)
+          .order("created_at", { ascending: false })
+          .limit(1);
 
-      if (data && data.length > 0) {
-        return data[0] as MobileToken;
+        if (data && data.length > 0) {
+          const candidate = data[0] as MobileToken;
+          if (candidate && candidate.token && candidate.token.trim()) {
+            const expiresAt = new Date(candidate.expires_at).getTime();
+            if (expiresAt > Date.now()) {
+              return candidate;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[Supabase Active Token Query Warning]:", err);
       }
-    } catch {
-      /* fallback to local */
     }
-    return this.createMobileToken(docId, ttlMinutes);
+    return this.createMobileToken(validDocId || safeRandomUUID(), ttlMinutes);
   }
 
   async getTokenInfo(token: string): Promise<MobileToken | null> {
-    const local = await this.fallbackAdapter.getTokenInfo(token);
-    if (local) return local;
+    if (!token || !token.trim()) return null;
+    const cleanToken = token.trim();
 
     try {
       const { data } = await supabase
         .from("rti_mobile_tokens")
         .select("*")
-        .eq("token", token)
+        .eq("token", cleanToken)
         .maybeSingle();
       if (data) return data as MobileToken;
     } catch {
       /* ignore */
     }
-    return null;
+
+    return this.fallbackAdapter.getTokenInfo(cleanToken);
   }
 
   async uploadMobileFile(
